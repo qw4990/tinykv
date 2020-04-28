@@ -27,6 +27,7 @@ func (s *StandAloneStorage) Start() error {
 	// Your Code Here (1).
 	opt := badger.DefaultOptions
 	opt.Dir = s.dbPath
+	opt.ValueDir = s.dbPath
 	db, err := badger.Open(opt)
 	s.db = db
 	return err

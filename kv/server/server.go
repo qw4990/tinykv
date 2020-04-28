@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/Connor1996/badger"
 
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 
@@ -39,11 +40,16 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 	if err != nil {
 		return nil, err
 	}
+	resp := new(kvrpcpb.RawGetResponse)
 	val, err := reader.GetCF(req.Cf, req.Key)
-	if err != nil {
+	if badger.ErrKeyNotFound == err {
+		resp.NotFound = true
+	} else if err == nil {
+		resp.Value = val
+	} else {
 		return nil, err
 	}
-	return &kvrpcpb.RawGetResponse{Value: val}, nil
+	return resp, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
