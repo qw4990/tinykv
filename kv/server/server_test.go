@@ -50,6 +50,9 @@ func cleanUpTestData(conf *config.Config) error {
 func TestRawGet1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -68,6 +71,10 @@ func TestRawGet1(t *testing.T) {
 func TestRawGetNotFound1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -84,6 +91,10 @@ func TestRawGetNotFound1(t *testing.T) {
 func TestRawPut1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -104,6 +115,10 @@ func TestRawPut1(t *testing.T) {
 func TestRawGetAfterRawPut1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -143,6 +158,10 @@ func TestRawGetAfterRawPut1(t *testing.T) {
 func TestRawGetAfterRawDelete1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -169,6 +188,10 @@ func TestRawGetAfterRawDelete1(t *testing.T) {
 func TestRawDelete1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -190,6 +213,10 @@ func TestRawDelete1(t *testing.T) {
 func TestRawScan1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -221,6 +248,10 @@ func TestRawScan1(t *testing.T) {
 func TestRawScanAfterRawPut1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -259,6 +290,10 @@ func TestRawScanAfterRawPut1(t *testing.T) {
 func TestRawScanAfterRawDelete1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
@@ -296,6 +331,10 @@ func TestRawScanAfterRawDelete1(t *testing.T) {
 func TestIterWithRawDelete1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 
