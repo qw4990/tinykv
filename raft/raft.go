@@ -202,12 +202,20 @@ func (r *Raft) tick() {
 			}
 			r.heartbeatElapsed = 0
 		}
-	case StateFollower:
+	case StateFollower, StateCandidate:
 		r.electionElapsed++
 		if r.electionElapsed == r.electionTimeout {
 			r.Term++
 			r.electionElapsed = 0
 			r.becomeCandidate()
+			
+			if r.votes == nil {
+				r.votes = make(map[uint64]bool)
+			}
+			r.votes[r.id] = true
+			for prID := range r.Prs {
+				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
+			}
 		}
 	}
 }
@@ -224,13 +232,6 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
 	r.State = StateCandidate
-	if r.votes == nil {
-		r.votes = make(map[uint64]bool)
-	}
-	r.votes[r.id] = true
-	for prID := range r.Prs {
-		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
-	}
 }
 
 // becomeLeader transform this peer's state to leader
