@@ -170,12 +170,14 @@ func newRaft(c *Config) *Raft {
 		}
 		prs[id] = nil
 	}
+	raftLog := newLog(c.Storage)
 	return &Raft{
 		Term:             1,
 		id:               c.ID,
 		electionTimeout:  c.ElectionTick,
 		heartbeatTimeout: c.HeartbeatTick,
 		Prs:              prs,
+		RaftLog:          raftLog,
 	}
 }
 
@@ -265,11 +267,28 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgRequestVoteResponse:
 		// ignore this message
 		case pb.MessageType_MsgRequestVote:
+			var reject bool
 			if r.Vote == None || r.Vote == m.From { // not vote || vote again
-				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: false})
-				r.Vote = m.From
+				reject = false
 			} else {
-				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: true})
+				reject = true
+			}
+
+			lastIdx := r.RaftLog.LastIndex()
+			if lastIdx > 0 {
+				es, err := r.RaftLog.storage.Entries(lastIdx, lastIdx+1)
+				if err != nil {
+					panic(err)
+				}
+				logTerm, logIndex := es[0].Term, es[0].Index
+				if m.LogTerm < logTerm || (m.LogTerm == logTerm && m.Index < logIndex) {
+					reject = true
+				}
+			}
+
+			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: reject})
+			if !reject {
+				r.Vote = m.From
 			}
 		}
 	case StateCandidate:
