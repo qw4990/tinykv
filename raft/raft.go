@@ -247,9 +247,21 @@ func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	switch r.State {
 	case StateFollower:
+		switch m.MsgType {
+		case pb.MessageType_MsgAppend:
+			r.becomeFollower(m.Term, m.From)
+		}
 	case StateCandidate:
+		switch m.MsgType {
+		case pb.MessageType_MsgAppend:
+			r.becomeFollower(m.Term, m.From)
+		}
 	case StateLeader:
 		switch m.MsgType {
+		case pb.MessageType_MsgAppend:
+			if m.Term > r.Term {
+				r.becomeFollower(m.Term, m.From)
+			}
 		case pb.MessageType_MsgPropose:
 			m.Term = r.Term
 			m.From = r.id
