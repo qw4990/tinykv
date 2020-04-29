@@ -17,6 +17,7 @@ package raft
 import (
 	"errors"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"math/rand"
 )
 
 // None is a placeholder node ID used when there is no leader.
@@ -204,7 +205,8 @@ func (r *Raft) tick() {
 		}
 	case StateFollower, StateCandidate:
 		r.electionElapsed++
-		if r.electionElapsed == r.electionTimeout {
+		if r.electionElapsed > r.electionTimeout &&
+			rand.Intn(10) == 0 { // randomized timeout
 			r.Term++
 			r.electionElapsed = 0
 			r.becomeCandidate()
