@@ -208,15 +208,22 @@ func (r *Raft) tick() {
 			r.Term++
 			r.electionElapsed = 0
 			r.becomeCandidate()
-			
-			if r.votes == nil {
-				r.votes = make(map[uint64]bool)
-			}
-			r.votes[r.id] = true
-			for prID := range r.Prs {
-				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
-			}
+			r.startVote()
 		}
+	}
+}
+
+func (r *Raft) startVote() {
+	if len(r.Prs) == 0 {
+		r.becomeLeader()
+		return
+	}
+
+	r.votes = make(map[uint64]bool)
+	r.votes[r.id] = true
+	r.Vote = 0
+	for prID := range r.Prs {
+		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
 	}
 }
 
@@ -250,11 +257,39 @@ func (r *Raft) Step(m pb.Message) error {
 		switch m.MsgType {
 		case pb.MessageType_MsgAppend:
 			r.becomeFollower(m.Term, m.From)
+		case pb.MessageType_MsgHup:
+			r.becomeCandidate()
+			r.startVote()
+		case pb.MessageType_MsgRequestVoteResponse:
+			// ignore this message
 		}
 	case StateCandidate:
 		switch m.MsgType {
 		case pb.MessageType_MsgAppend:
 			r.becomeFollower(m.Term, m.From)
+		case pb.MessageType_MsgHup:
+			r.becomeCandidate()
+			r.startVote()
+		case pb.MessageType_MsgRequestVoteResponse:
+			if m.Term == r.Term {
+				r.votes[m.From] = !m.Reject
+				r.Vote++
+				approve := 0
+				reject := 0
+				for _, v := range r.votes {
+					if v {
+						approve++
+					} else {
+						reject++
+					}
+				}
+				majority := (len(r.Prs) + 1) / 2
+				if approve > majority {
+					r.becomeLeader()
+				} else if reject > majority {
+					r.becomeFollower(r.Term, r.Lead)
+				}
+			}
 		}
 	case StateLeader:
 		switch m.MsgType {
@@ -266,6 +301,8 @@ func (r *Raft) Step(m pb.Message) error {
 			m.Term = r.Term
 			m.From = r.id
 			r.msgs = append(r.msgs, m)
+		case pb.MessageType_MsgRequestVoteResponse:
+			// ignore this message
 		}
 	}
 	return nil
