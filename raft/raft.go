@@ -221,7 +221,7 @@ func (r *Raft) startVote() {
 
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
-	r.Vote = 0
+	r.Vote = r.id
 	for prID := range r.Prs {
 		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
 	}
@@ -261,7 +261,14 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeCandidate()
 			r.startVote()
 		case pb.MessageType_MsgRequestVoteResponse:
-			// ignore this message
+		// ignore this message
+		case pb.MessageType_MsgRequestVote:
+			if r.Vote == None || r.Vote == m.From { // not vote || vote again
+				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: false})
+				r.Vote = m.From
+			} else {
+				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: true})
+			}
 		}
 	case StateCandidate:
 		switch m.MsgType {
@@ -273,7 +280,6 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgRequestVoteResponse:
 			if m.Term == r.Term {
 				r.votes[m.From] = !m.Reject
-				r.Vote++
 				approve := 0
 				reject := 0
 				for _, v := range r.votes {
