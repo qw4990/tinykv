@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -171,6 +170,7 @@ func newRaft(c *Config) *Raft {
 		prs[id] = nil
 	}
 	return &Raft{
+		Term:             1,
 		id:               c.ID,
 		electionTimeout:  c.ElectionTick,
 		heartbeatTimeout: c.HeartbeatTick,
@@ -193,30 +193,51 @@ func (r *Raft) sendHeartbeat(to uint64) {
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
-	r.Term++
-	r.heartbeatElapsed++
-	if r.heartbeatElapsed == r.heartbeatTimeout {
-		for prID := range r.Prs {
-			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeat, Term: r.Term, From: r.id, To: prID})
+	switch r.State {
+	case StateLeader:
+		r.heartbeatElapsed++
+		if r.heartbeatElapsed == r.heartbeatTimeout {
+			for prID := range r.Prs {
+				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeat, Term: r.Term, From: r.id, To: prID})
+			}
+			r.heartbeatElapsed = 0
 		}
-		r.heartbeatElapsed = 0
+	case StateFollower:
+		r.electionElapsed++
+		if r.electionElapsed == r.electionTimeout {
+			r.Term++
+			r.electionElapsed = 0
+			r.becomeCandidate()
+		}
 	}
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	r.State = StateFollower
+	r.Term = term
+	r.Lead = lead
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	r.State = StateCandidate
+	if r.votes == nil {
+		r.votes = make(map[uint64]bool)
+	}
+	r.votes[r.id] = true
+	for prID := range r.Prs {
+		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
+	}
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	r.State = StateLeader
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -225,7 +246,6 @@ func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
 	switch r.State {
 	case StateFollower:
-		r.Term = m.Term
 	case StateCandidate:
 	case StateLeader:
 		switch m.MsgType {
