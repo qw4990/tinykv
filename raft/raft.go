@@ -234,6 +234,9 @@ func (r *Raft) startVote() {
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	if r.id == lead {
+		return
+	}
 	r.State = StateFollower
 	r.Term = term
 	r.Lead = lead
@@ -301,7 +304,7 @@ func (r *Raft) Step(m pb.Message) error {
 					}
 				}
 				majority := (len(r.Prs) + 1) / 2
-				if approve > majority {
+				if approve >= majority {
 					r.becomeLeader()
 					r.Vote = None
 				} else if reject > majority {
