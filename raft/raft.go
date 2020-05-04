@@ -209,7 +209,6 @@ func (r *Raft) tick() {
 		r.electionElapsed++
 		if r.electionElapsed > r.electionTimeout &&
 			rand.Intn(10) == 0 { // randomized timeout
-			r.Term++
 			r.electionElapsed = 0
 			r.becomeCandidate()
 			r.startVote()
