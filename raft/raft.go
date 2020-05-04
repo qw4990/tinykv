@@ -348,6 +348,9 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	r.Term = m.Term
 	r.Lead = m.From
 	r.Vote = None
+	if m.Commit > r.RaftLog.committed {
+		r.RaftLog.committed = m.Commit
+	}
 	r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeatResponse, From: r.id, To: m.From, Term: r.Term})
 }
 
