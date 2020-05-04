@@ -274,32 +274,7 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgRequestVoteResponse:
 		// ignore this message
 		case pb.MessageType_MsgRequestVote:
-			var reject bool
-			if r.Vote == None || r.Vote == m.From { // not vote || vote again
-				reject = false
-			} else {
-				reject = true
-			}
-			if m.Term < r.Term { // the new leader should have a higher term
-				reject = true
-			}
-
-			// check the storage index
-			lastIdx := r.RaftLog.LastIndex()
-			if lastIdx > 0 {
-				es, err := r.RaftLog.storage.Entries(lastIdx, lastIdx+1)
-				if err != nil {
-					panic(err)
-				}
-				logTerm, logIndex := es[0].Term, es[0].Index
-				if m.LogTerm < logTerm || (m.LogTerm == logTerm && m.Index < logIndex) {
-					reject = true
-				}
-			}
-			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: m.Term, From: r.id, To: m.From, Reject: reject})
-			if !reject {
-				r.Vote = m.From
-			}
+			r.handleVote(m)
 		}
 	case StateCandidate:
 		switch m.MsgType {
@@ -311,6 +286,8 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgHeartbeat:
 			r.becomeFollower(m.Term, m.From)
 			r.handleHeartbeat(m)
+		case pb.MessageType_MsgRequestVote:
+			r.handleVote(m)
 		case pb.MessageType_MsgRequestVoteResponse:
 			if m.Term == r.Term {
 				r.votes[m.From] = !m.Reject
@@ -348,20 +325,7 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgHup:
 			// ignore this message since it is already a leader
 		case pb.MessageType_MsgRequestVote:
-			var reject bool
-			if r.Vote == None || r.Vote == m.From { // not vote || vote again
-				reject = false
-			} else {
-				reject = true
-			}
-			if m.Term < r.Term { // the new leader should have a higher term
-				reject = true
-			}
-			// TODO: check the storage
-			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: reject})
-			if !reject {
-				r.Vote = m.From
-			}
+			r.handleVote(m)
 		case pb.MessageType_MsgHeartbeat:
 			if m.From == r.Vote {
 				r.Vote = None
@@ -385,6 +349,37 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	r.Lead = m.From
 	r.Vote = None
 	r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeatResponse, From: r.id, To: m.From, Term: r.Term})
+}
+
+func (r *Raft) handleVote(m pb.Message) {
+	var reject bool
+	if r.Vote == None || r.Vote == m.From { // not vote || vote again
+		reject = false
+	} else {
+		reject = true
+	}
+	if m.Term < r.Term { // the new leader should have a higher term
+		reject = true
+	}
+
+	// check the storage index
+	lastIdx := r.RaftLog.LastIndex()
+	if lastIdx > 0 {
+		es, err := r.RaftLog.storage.Entries(lastIdx, lastIdx+1)
+		if err != nil {
+			panic(err)
+		}
+		logTerm, logIndex := es[0].Term, es[0].Index
+		if m.LogTerm < logTerm || (m.LogTerm == logTerm && m.Index < logIndex) {
+			reject = true
+		}
+	}
+	r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: m.Term, From: r.id, To: m.From, Reject: reject})
+	if !reject {
+		r.Vote = m.From
+		r.Term = m.Term
+		r.becomeFollower(m.Term, m.From)
+	}
 }
 
 // handleSnapshot handle Snapshot RPC request
