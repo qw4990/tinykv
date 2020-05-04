@@ -191,6 +191,14 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
+	r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeat, Term: r.Term, From: r.id, To: to})
+}
+
+func (r *Raft) sendHeartbeats() {
+	for prID := range r.Prs {
+		r.sendHeartbeat(prID)
+	}
+	r.heartbeatElapsed = 0
 }
 
 // tick advances the internal logical clock by a single tick.
@@ -200,10 +208,7 @@ func (r *Raft) tick() {
 	case StateLeader:
 		r.heartbeatElapsed++
 		if r.heartbeatElapsed == r.heartbeatTimeout {
-			for prID := range r.Prs {
-				r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeat, Term: r.Term, From: r.id, To: prID})
-			}
-			r.heartbeatElapsed = 0
+			r.sendHeartbeats()
 		}
 	case StateFollower, StateCandidate:
 		r.electionElapsed++
@@ -253,11 +258,7 @@ func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
 	r.State = StateLeader
-	// send heartbeats
-	for prID := range r.Prs {
-		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeat, Term: r.Term, From: r.id, To: prID})
-	}
-	r.heartbeatElapsed = 0
+	r.sendHeartbeats()
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -339,6 +340,8 @@ func (r *Raft) Step(m pb.Message) error {
 				r.becomeFollower(m.Term, m.From)
 				r.handleHeartbeat(m)
 			}
+		case pb.MessageType_MsgBeat:
+			r.sendHeartbeats()
 		}
 	}
 	return nil
