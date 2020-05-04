@@ -303,8 +303,12 @@ func (r *Raft) Step(m pb.Message) error {
 						reject++
 					}
 				}
-				majority := (len(r.Prs) + 1) / 2
-				if approve >= majority {
+				n := len(r.Prs)
+				if _, ok := r.Prs[r.id]; !ok {
+					n++
+				}
+				majority := n / 2
+				if approve > majority {
 					r.becomeLeader()
 					r.Vote = None
 				} else if reject > majority {
