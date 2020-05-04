@@ -209,6 +209,7 @@ func (r *Raft) tick() {
 		r.electionElapsed++
 		if r.electionElapsed > r.electionTimeout &&
 			rand.Intn(10) == 0 { // randomized timeout
+			r.Term++
 			r.electionElapsed = 0
 			r.becomeCandidate()
 			r.startVote()
@@ -222,7 +223,6 @@ func (r *Raft) startVote() {
 		return
 	}
 
-	r.Term++
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
 	r.Vote = r.id
@@ -280,7 +280,7 @@ func (r *Raft) Step(m pb.Message) error {
 			} else {
 				reject = true
 			}
-			if m.Term <= r.Term { // the new leader should have a higher term
+			if m.Term < r.Term { // the new leader should have a higher term
 				reject = true
 			}
 
@@ -354,7 +354,7 @@ func (r *Raft) Step(m pb.Message) error {
 			} else {
 				reject = true
 			}
-			if m.Term <= r.Term { // the new leader should have a higher term
+			if m.Term < r.Term { // the new leader should have a higher term
 				reject = true
 			}
 			// TODO: check the storage
