@@ -223,6 +223,7 @@ func (r *Raft) startVote() {
 		return
 	}
 
+	r.Term++
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
 	r.Vote = r.id
@@ -250,6 +251,11 @@ func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
 	r.State = StateLeader
+	// send heartbeats
+	for prID := range r.Prs {
+		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeat, Term: r.Term, From: r.id, To: prID})
+	}
+	r.heartbeatElapsed = 0
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -264,6 +270,8 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
 			r.startVote()
+		case pb.MessageType_MsgHeartbeat:
+			r.handleHeartbeat(m)
 		case pb.MessageType_MsgRequestVoteResponse:
 		// ignore this message
 		case pb.MessageType_MsgRequestVote:
@@ -273,7 +281,11 @@ func (r *Raft) Step(m pb.Message) error {
 			} else {
 				reject = true
 			}
+			if m.Term <= r.Term { // the new leader should have a higher term
+				reject = true
+			}
 
+			// check the storage index
 			lastIdx := r.RaftLog.LastIndex()
 			if lastIdx > 0 {
 				es, err := r.RaftLog.storage.Entries(lastIdx, lastIdx+1)
@@ -285,8 +297,7 @@ func (r *Raft) Step(m pb.Message) error {
 					reject = true
 				}
 			}
-
-			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: reject})
+			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: m.Term, From: r.id, To: m.From, Reject: reject})
 			if !reject {
 				r.Vote = m.From
 			}
@@ -298,6 +309,9 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
 			r.startVote()
+		case pb.MessageType_MsgHeartbeat:
+			r.becomeFollower(m.Term, m.From)
+			r.handleHeartbeat(m)
 		case pb.MessageType_MsgRequestVoteResponse:
 			if m.Term == r.Term {
 				r.votes[m.From] = !m.Reject
@@ -313,8 +327,10 @@ func (r *Raft) Step(m pb.Message) error {
 				majority := (len(r.Prs) + 1) / 2
 				if approve > majority {
 					r.becomeLeader()
+					r.Vote = None
 				} else if reject > majority {
 					r.becomeFollower(r.Term, r.Lead)
+					r.Vote = None
 				}
 			}
 		}
@@ -330,6 +346,29 @@ func (r *Raft) Step(m pb.Message) error {
 			r.msgs = append(r.msgs, m)
 		case pb.MessageType_MsgRequestVoteResponse:
 			// ignore this message
+		case pb.MessageType_MsgHup:
+			// ignore this message since it is already a leader
+		case pb.MessageType_MsgRequestVote:
+			var reject bool
+			if r.Vote == None || r.Vote == m.From { // not vote || vote again
+				reject = false
+			} else {
+				reject = true
+			}
+			if m.Term <= r.Term { // the new leader should have a higher term
+				reject = true
+			}
+			// TODO: check the storage
+			r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, Term: r.Term, From: r.id, To: m.From, Reject: reject})
+			if !reject {
+				r.Vote = m.From
+			}
+		case pb.MessageType_MsgHeartbeat:
+			if m.From == r.Vote {
+				r.Vote = None
+				r.becomeFollower(m.Term, m.From)
+				r.handleHeartbeat(m)
+			}
 		}
 	}
 	return nil
@@ -343,6 +382,10 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
+	r.Term = m.Term
+	r.Lead = m.From
+	r.Vote = None
+	r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgHeartbeatResponse, From: r.id, To: m.From, Term: r.Term})
 }
 
 // handleSnapshot handle Snapshot RPC request
