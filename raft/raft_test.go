@@ -871,17 +871,17 @@ func TestDisruptiveFollower2AA(t *testing.T) {
 		t.Fatalf("node 3 state: %s, want %s", n3.State, StateCandidate)
 	}
 	// check term
-	// n1.Term == 2
-	// n2.Term == 2
-	// n3.Term == 3
-	if n1.Term != 2 {
-		t.Fatalf("node 1 term: %d, want %d", n1.Term, 2)
+	// n1.Term == 1
+	// n2.Term == 1
+	// n3.Term == 2
+	if n1.Term != 1 {
+		t.Fatalf("node 1 term: %d, want %d", n1.Term, 1)
 	}
-	if n2.Term != 2 {
-		t.Fatalf("node 2 term: %d, want %d", n2.Term, 2)
+	if n2.Term != 1 {
+		t.Fatalf("node 2 term: %d, want %d", n2.Term, 1)
 	}
-	if n3.Term != 3 {
-		t.Fatalf("node 3 term: %d, want %d", n3.Term, 3)
+	if n3.Term != 2 {
+		t.Fatalf("node 3 term: %d, want %d", n3.Term, 2)
 	}
 
 	// while outgoing vote requests are still queued in n3,
@@ -901,8 +901,8 @@ func TestDisruptiveFollower2AA(t *testing.T) {
 	}
 
 	// check term
-	if n1.Term != 3 {
-		t.Fatalf("node 1 term: %d, want %d", n1.Term, 3)
+	if n1.Term != 2 {
+		t.Fatalf("node 1 term: %d, want %d", n1.Term, 2)
 	}
 }
 
