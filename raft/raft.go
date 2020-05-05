@@ -216,6 +216,7 @@ func (r *Raft) tick() {
 			rand.Intn(10) == 0 { // randomized timeout
 			r.electionElapsed = 0
 			r.becomeCandidate()
+			r.startElection()
 		}
 	}
 }
@@ -240,7 +241,9 @@ func (r *Raft) becomeCandidate() {
 		r.becomeLeader()
 		return
 	}
+}
 
+func (r *Raft) startElection() {
 	// start a new leader election
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
@@ -269,6 +272,7 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, m.From)
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
+			r.startElection()
 		case pb.MessageType_MsgHeartbeat:
 			r.handleHeartbeat(m)
 		case pb.MessageType_MsgRequestVoteResponse:
@@ -282,6 +286,7 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, m.From)
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
+			r.startElection()
 		case pb.MessageType_MsgHeartbeat:
 			r.becomeFollower(m.Term, m.From)
 			r.handleHeartbeat(m)
