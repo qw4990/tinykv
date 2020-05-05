@@ -373,6 +373,8 @@ func (r *Raft) handleVote(m pb.Message) {
 	}
 	if m.Term < r.Term { // the new leader should have a higher term
 		reject = true
+	} else if m.Term > r.Term {
+		reject = false
 	}
 
 	// check the storage index
