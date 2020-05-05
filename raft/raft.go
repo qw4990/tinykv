@@ -172,7 +172,7 @@ func newRaft(c *Config) *Raft {
 	}
 	raftLog := newLog(c.Storage)
 	return &Raft{
-		Term:             1,
+		Term:             0,
 		id:               c.ID,
 		electionTimeout:  c.ElectionTick,
 		heartbeatTimeout: c.HeartbeatTick,
@@ -214,25 +214,9 @@ func (r *Raft) tick() {
 		r.electionElapsed++
 		if r.electionElapsed > r.electionTimeout &&
 			rand.Intn(10) == 0 { // randomized timeout
-			r.Term++
 			r.electionElapsed = 0
 			r.becomeCandidate()
-			r.startVote()
 		}
-	}
-}
-
-func (r *Raft) startVote() {
-	if len(r.Prs) == 0 {
-		r.becomeLeader()
-		return
-	}
-
-	r.votes = make(map[uint64]bool)
-	r.votes[r.id] = true
-	r.Vote = r.id
-	for prID := range r.Prs {
-		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
 	}
 }
 
@@ -251,6 +235,19 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
 	r.State = StateCandidate
+	r.Term++
+	if len(r.Prs) == 0 {
+		r.becomeLeader()
+		return
+	}
+
+	// start a new leader election
+	r.votes = make(map[uint64]bool)
+	r.votes[r.id] = true
+	r.Vote = r.id
+	for prID := range r.Prs {
+		r.msgs = append(r.msgs, pb.Message{MsgType: pb.MessageType_MsgRequestVote, Term: r.Term, From: r.id, To: prID})
+	}
 }
 
 // becomeLeader transform this peer's state to leader
@@ -272,7 +269,6 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, m.From)
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
-			r.startVote()
 		case pb.MessageType_MsgHeartbeat:
 			r.handleHeartbeat(m)
 		case pb.MessageType_MsgRequestVoteResponse:
@@ -286,7 +282,6 @@ func (r *Raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, m.From)
 		case pb.MessageType_MsgHup:
 			r.becomeCandidate()
-			r.startVote()
 		case pb.MessageType_MsgHeartbeat:
 			r.becomeFollower(m.Term, m.From)
 			r.handleHeartbeat(m)
