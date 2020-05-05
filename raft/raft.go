@@ -185,7 +185,15 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
-	return false
+	appendMsg := pb.Message{MsgType: pb.MessageType_MsgAppend, Term: r.Term, From: r.id, To: to,
+		Entries: []*pb.Entry{{
+			EntryType: pb.EntryType_EntryNormal,
+			Term:      r.Term,
+			Index:     r.RaftLog.committed,
+			Data:      nil,
+		}}}
+	r.msgs = append(r.msgs, appendMsg)
+	return true
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
@@ -239,6 +247,7 @@ func (r *Raft) becomeCandidate() {
 	r.Term++
 	if len(r.Prs) == 0 {
 		r.becomeLeader()
+		r.sendHeartbeats()
 		return
 	}
 }
@@ -258,7 +267,6 @@ func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
 	r.State = StateLeader
-	r.sendHeartbeats()
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -311,6 +319,7 @@ func (r *Raft) Step(m pb.Message) error {
 				majority := n / 2
 				if approve > majority {
 					r.becomeLeader()
+					r.sendHeartbeats()
 					r.Vote = None
 				} else if reject > majority {
 					r.becomeFollower(r.Term, r.Lead)
