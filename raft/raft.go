@@ -188,6 +188,13 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
+	r.send(pb.Message{MsgType: pb.MessageType_MsgHeartbeat, To: to})
+}
+
+func (r *Raft) send(m pb.Message) {
+	m.From = r.id
+	m.Term = r.Term
+	r.msgs = append(r.msgs, m)
 }
 
 // tick advances the internal logical clock by a single tick.
@@ -227,12 +234,24 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	if r.State == StateLeader {
+		panic("invalid state")
+	}
+	r.Vote = r.id
+	r.Term = r.Term + 1
+	r.State = StateCandidate
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	if r.State == StateFollower {
+		panic("invalid state")
+	}
+	r.Lead = r.id
+	r.State = StateLeader
+	r.appendEntry(pb.Entry{})
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -288,6 +307,7 @@ func (r *Raft) Step(m pb.Message) error {
 		switch m.MsgType {
 		case pb.MessageType_MsgHup:
 		case pb.MessageType_MsgBeat:
+			r.bcastHeartbeat()
 		case pb.MessageType_MsgPropose:
 		case pb.MessageType_MsgAppend:
 		case pb.MessageType_MsgAppendResponse:
@@ -303,9 +323,22 @@ func (r *Raft) Step(m pb.Message) error {
 	return nil
 }
 
+func (r *Raft) bcastHeartbeat() {
+	for prID := range r.Prs {
+		if prID == r.id {
+			continue
+		}
+		r.sendHeartbeat(prID)
+	}
+}
+
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
+}
+
+func (r *Raft) appendEntry(e pb.Entry) {
+	// TODO
 }
 
 // handleHeartbeat handle Heartbeat RPC request
