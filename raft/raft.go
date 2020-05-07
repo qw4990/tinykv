@@ -210,7 +210,7 @@ func (r *Raft) tick() {
 func (r *Raft) tickElection() {
 	r.electionElapsed++
 	random := r.electionTimeout + rand.Intn(r.electionTimeout)
-	if r.electionElapsed >= random {
+	if r.electionElapsed > random {
 		r.electionElapsed = 0
 		r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgHup})
 	}
@@ -271,6 +271,7 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 	case m.Term < r.Term:
 		// TODO
+		return nil
 	}
 
 	switch r.State {
@@ -306,6 +307,8 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgBeat:
 		case pb.MessageType_MsgPropose:
 		case pb.MessageType_MsgAppend:
+			r.becomeFollower(m.Term, m.From) // become to follower again
+			r.handleAppendEntries(m)
 		case pb.MessageType_MsgAppendResponse:
 		case pb.MessageType_MsgRequestVote:
 		case pb.MessageType_MsgRequestVoteResponse:
