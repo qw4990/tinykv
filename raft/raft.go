@@ -219,6 +219,9 @@ func (r *Raft) tickHeartbeat() {
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
+	r.Term = term
+	r.Lead = lead
+	r.State = StateFollower
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -236,10 +239,66 @@ func (r *Raft) becomeLeader() {
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
+	switch {
+	case m.Term == 0:
+		// local message
+	case m.Term > r.Term:
+		if m.MsgType == pb.MessageType_MsgAppend || m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgSnapshot {
+			r.becomeFollower(m.Term, m.From)
+		}
+	case m.Term < r.Term:
+		// TODO
+	}
+
 	switch r.State {
 	case StateFollower:
+		switch m.MsgType {
+		case pb.MessageType_MsgHup:
+		case pb.MessageType_MsgBeat:
+		case pb.MessageType_MsgPropose:
+		case pb.MessageType_MsgAppend:
+			r.electionElapsed = 0
+			r.Lead = m.From
+			r.handleAppendEntries(m)
+		case pb.MessageType_MsgAppendResponse:
+		case pb.MessageType_MsgRequestVote:
+		case pb.MessageType_MsgRequestVoteResponse:
+		case pb.MessageType_MsgSnapshot:
+		case pb.MessageType_MsgHeartbeat:
+		case pb.MessageType_MsgHeartbeatResponse:
+		case pb.MessageType_MsgTransferLeader:
+		case pb.MessageType_MsgTimeoutNow:
+		}
 	case StateCandidate:
+		switch m.MsgType {
+		case pb.MessageType_MsgHup:
+		case pb.MessageType_MsgBeat:
+		case pb.MessageType_MsgPropose:
+		case pb.MessageType_MsgAppend:
+		case pb.MessageType_MsgAppendResponse:
+		case pb.MessageType_MsgRequestVote:
+		case pb.MessageType_MsgRequestVoteResponse:
+		case pb.MessageType_MsgSnapshot:
+		case pb.MessageType_MsgHeartbeat:
+		case pb.MessageType_MsgHeartbeatResponse:
+		case pb.MessageType_MsgTransferLeader:
+		case pb.MessageType_MsgTimeoutNow:
+		}
 	case StateLeader:
+		switch m.MsgType {
+		case pb.MessageType_MsgHup:
+		case pb.MessageType_MsgBeat:
+		case pb.MessageType_MsgPropose:
+		case pb.MessageType_MsgAppend:
+		case pb.MessageType_MsgAppendResponse:
+		case pb.MessageType_MsgRequestVote:
+		case pb.MessageType_MsgRequestVoteResponse:
+		case pb.MessageType_MsgSnapshot:
+		case pb.MessageType_MsgHeartbeat:
+		case pb.MessageType_MsgHeartbeatResponse:
+		case pb.MessageType_MsgTransferLeader:
+		case pb.MessageType_MsgTimeoutNow:
+		}
 	}
 	return nil
 }
