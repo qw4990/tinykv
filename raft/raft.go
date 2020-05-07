@@ -173,6 +173,7 @@ func newRaft(c *Config) *Raft {
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
 		Prs:              prs,
+		RaftLog:          newLog(c.Storage),
 	}
 	r.becomeFollower(r.Term, None)
 	return r
@@ -289,6 +290,9 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgRequestVote:
 			canVote := r.Vote == m.From || // repeated vote
 				(r.Vote == None && r.Lead == None) // not Vote
+			if !r.RaftLog.isUpToDate(m.LogTerm, m.Index) {
+				canVote = false
+			}
 			r.send(pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, To: m.From, Reject: !canVote})
 			if canVote {
 				r.Vote = m.From
