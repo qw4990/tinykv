@@ -209,7 +209,7 @@ func (r *Raft) tick() {
 
 func (r *Raft) tickElection() {
 	r.electionElapsed++
-	random := r.electionTimeout+rand.Intn(r.electionTimeout)
+	random := r.electionTimeout + rand.Intn(r.electionTimeout)
 	if r.electionElapsed >= random {
 		r.electionElapsed = 0
 		r.Step(pb.Message{From: r.id, MsgType: pb.MessageType_MsgHup})
@@ -229,6 +229,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
 	r.Term = term
 	r.Lead = lead
+	r.Vote = None
 	r.State = StateFollower
 }
 
@@ -265,6 +266,8 @@ func (r *Raft) Step(m pb.Message) error {
 	case m.Term > r.Term:
 		if m.MsgType == pb.MessageType_MsgAppend || m.MsgType == pb.MessageType_MsgHeartbeat || m.MsgType == pb.MessageType_MsgSnapshot {
 			r.becomeFollower(m.Term, m.From)
+		} else {
+			r.becomeFollower(m.Term, None) // set the leader to None and wait to vote
 		}
 	case m.Term < r.Term:
 		// TODO
@@ -283,6 +286,12 @@ func (r *Raft) Step(m pb.Message) error {
 			r.handleAppendEntries(m)
 		case pb.MessageType_MsgAppendResponse:
 		case pb.MessageType_MsgRequestVote:
+			canVote := r.Vote == m.From || // repeated vote
+				(r.Vote == None && r.Lead == None) // not Vote
+			r.send(pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, To: m.From, Reject: !canVote})
+			if canVote {
+				r.Vote = m.From
+			}
 		case pb.MessageType_MsgRequestVoteResponse:
 		case pb.MessageType_MsgSnapshot:
 		case pb.MessageType_MsgHeartbeat:
@@ -300,6 +309,13 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgAppendResponse:
 		case pb.MessageType_MsgRequestVote:
 		case pb.MessageType_MsgRequestVoteResponse:
+			r.votes[m.From] = !m.Reject
+			result := r.winVote()
+			if result == 1 {
+				r.becomeLeader()
+			} else if result == -1 {
+				r.becomeFollower(r.Term, None)
+			}
 		case pb.MessageType_MsgSnapshot:
 		case pb.MessageType_MsgHeartbeat:
 		case pb.MessageType_MsgHeartbeatResponse:
@@ -343,26 +359,31 @@ func (r *Raft) handleMsgHup(m pb.Message) {
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true // vote to itself
 	r.bcastVote()
-	if r.winVote() { // it's a single node cluster
+	if r.winVote() == 1 { // it's a single node cluster
 		r.becomeLeader()
 	}
 }
 
-func (r *Raft) winVote() bool {
+func (r *Raft) winVote() int {
 	if r.State != StateCandidate {
 		panic("invalid state")
 	}
 	accepted := 0
+	rejected := 0
 	for _, ok := range r.votes {
 		if ok {
 			accepted++
+		} else {
+			rejected++
 		}
 	}
 	majority := len(r.Prs)/2 + 1
 	if accepted >= majority {
-		return true
+		return 1
+	} else if rejected >= majority {
+		return -1
 	}
-	return false
+	return 0
 }
 
 func (r *Raft) bcastVote() {
