@@ -274,6 +274,19 @@ func (r *Raft) Step(m pb.Message) error {
 		// TODO
 		return nil
 	}
+	
+	if m.MsgType == pb.MessageType_MsgRequestVote {
+		canVote := r.Vote == m.From || // repeated vote
+			(r.Vote == None && r.Lead == None) // not Vote
+		if !r.RaftLog.isUpToDate(m.LogTerm, m.Index) {
+			canVote = false
+		}
+		r.send(pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, To: m.From, Reject: !canVote})
+		if canVote {
+			r.Vote = m.From
+		}
+		return nil
+	}
 
 	switch r.State {
 	case StateFollower:
@@ -288,18 +301,10 @@ func (r *Raft) Step(m pb.Message) error {
 			r.handleAppendEntries(m)
 		case pb.MessageType_MsgAppendResponse:
 		case pb.MessageType_MsgRequestVote:
-			canVote := r.Vote == m.From || // repeated vote
-				(r.Vote == None && r.Lead == None) // not Vote
-			if !r.RaftLog.isUpToDate(m.LogTerm, m.Index) {
-				canVote = false
-			}
-			r.send(pb.Message{MsgType: pb.MessageType_MsgRequestVoteResponse, To: m.From, Reject: !canVote})
-			if canVote {
-				r.Vote = m.From
-			}
 		case pb.MessageType_MsgRequestVoteResponse:
 		case pb.MessageType_MsgSnapshot:
 		case pb.MessageType_MsgHeartbeat:
+			r.handleHeartbeat(m)
 		case pb.MessageType_MsgHeartbeatResponse:
 		case pb.MessageType_MsgTransferLeader:
 		case pb.MessageType_MsgTimeoutNow:
@@ -414,6 +419,8 @@ func (r *Raft) appendEntry(e pb.Entry) {
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
+	r.RaftLog.commitTo(m.Commit)
+	r.send(pb.Message{MsgType: pb.MessageType_MsgHeartbeatResponse, To: m.From})
 }
 
 // handleSnapshot handle Snapshot RPC request

@@ -114,3 +114,9 @@ func (l *RaftLog) isUpToDate(term, index uint64) bool {
 	}
 	return term > lastTerm || (lastTerm == term && index >= li)
 }
+
+func (l *RaftLog) commitTo(tocommit uint64) {
+	if l.committed < tocommit {
+		l.committed = tocommit
+	}
+}
