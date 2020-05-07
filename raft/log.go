@@ -14,7 +14,9 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -68,7 +70,7 @@ func newLog(storage Storage) *RaftLog {
 		storage:   storage,
 		committed: first - 1,
 		applied:   first - 1,
-		stabled:   last,
+		stabled:   last - 1,
 	}
 }
 
@@ -89,6 +91,21 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
 	return nil
+}
+
+func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
+	ents := make([]pb.Entry, 0, 4)
+	if lo <= l.stabled {
+		tmp, err := l.storage.Entries(lo, min(l.stabled+1, hi))
+		if err != nil {
+			return nil, err
+		}
+		ents = append(ents, tmp...)
+	}
+	if hi > l.stabled {
+		ents = append(ents, l.unstableEntries()[:hi-l.stabled]...)
+	}
+	return ents, nil
 }
 
 // LastIndex return the last index of the lon entries
@@ -119,4 +136,9 @@ func (l *RaftLog) commitTo(tocommit uint64) {
 	if l.committed < tocommit {
 		l.committed = tocommit
 	}
+}
+
+func (l *RaftLog) append(ents ...pb.Entry) {
+	// TODO: truncate duplicated entries
+	l.entries = append(l.entries, ents...)
 }

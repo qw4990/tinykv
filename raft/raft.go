@@ -16,8 +16,10 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"math/rand"
+	"sort"
 )
 
 // None is a placeholder node ID used when there is no leader.
@@ -183,7 +185,17 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
-	return false
+	ents, err := r.RaftLog.Entries(r.Prs[to].Next, r.RaftLog.LastIndex()+1)
+	if err != nil {
+		panic(err)
+	}
+	ps := make([]*pb.Entry, 0, len(ents))
+	for _, e := range ents {
+		cloned := e
+		ps = append(ps, &cloned)
+	}
+	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps})
+	return true
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
@@ -272,9 +284,10 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 	case m.Term < r.Term:
 		// TODO
+		fmt.Println("m.Term < r.Term", m, r.Term)
 		return nil
 	}
-	
+
 	if m.MsgType == pb.MessageType_MsgRequestVote {
 		canVote := r.Vote == m.From || // repeated vote
 			(r.Vote == None && r.Lead == None) // not Vote
@@ -340,8 +353,24 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgBeat:
 			r.bcastHeartbeat()
 		case pb.MessageType_MsgPropose:
+			for _, e := range m.Entries {
+				r.appendEntry(*e)
+			}
 		case pb.MessageType_MsgAppend:
 		case pb.MessageType_MsgAppendResponse:
+			fmt.Println("???????")
+			if m.Reject {
+				// TODO
+			} else {
+				pr := r.Prs[m.From]
+				if pr.Match < m.Index {
+					pr.Match = m.Index
+				}
+				if pr.Next < m.Index+1 {
+					pr.Next = m.Index + 1
+				}
+				r.updateCommitted()
+			}
 		case pb.MessageType_MsgRequestVote:
 		case pb.MessageType_MsgRequestVoteResponse:
 		case pb.MessageType_MsgSnapshot:
@@ -352,6 +381,27 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 	}
 	return nil
+}
+
+func (r *Raft) majorityCommitted() uint64 {
+	cs := make([]uint64, 0, len(r.Prs))
+	for prID := range r.Prs {
+		if prID == r.id {
+			cs = append(cs, r.RaftLog.LastIndex())
+		} else {
+			cs = append(cs, r.Prs[prID].Match)
+		}
+	}
+	sort.Slice(cs, func(i, j int) bool {
+		return cs[i] > cs[j]
+	})
+	majority := len(r.Prs)/2 + 1
+	return cs[majority]
+}
+
+func (r *Raft) updateCommitted() {
+	committed := r.majorityCommitted()
+	r.RaftLog.commitTo(committed)
 }
 
 func (r *Raft) bcastHeartbeat() {
@@ -413,7 +463,10 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 }
 
 func (r *Raft) appendEntry(e pb.Entry) {
-	// TODO
+	li := r.RaftLog.LastIndex()
+	e.Index = li + 1
+	e.Term = r.Term
+	r.RaftLog.append(e)
 }
 
 // handleHeartbeat handle Heartbeat RPC request
