@@ -491,7 +491,8 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	for _, e := range m.Entries {
 		ents = append(ents, *e)
 	}
-	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex(), Reject: !r.RaftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, ents...)})
+	committed := r.RaftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, ents...)
+	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex(), Reject: !committed})
 }
 
 func (r *Raft) appendEntry(e pb.Entry) {
