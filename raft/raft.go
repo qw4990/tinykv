@@ -491,15 +491,14 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	for _, e := range m.Entries {
 		ents = append(ents, *e)
 	}
-	r.RaftLog.tryAppend(m.Commit, ents...)
-	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex()})
+	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex(), Reject: !r.RaftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, ents...)})
 }
 
 func (r *Raft) appendEntry(e pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	e.Index = li + 1
 	e.Term = r.Term
-	r.RaftLog.tryAppend(r.RaftLog.committed, e)
+	r.RaftLog.mustAppend(e)
 }
 
 // handleHeartbeat handle Heartbeat RPC request

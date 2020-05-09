@@ -148,14 +148,14 @@ func (l *RaftLog) LastIndex() uint64 {
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	last, err := l.storage.LastIndex()
+	ents, err := l.Entries(i, i+1)
 	if err != nil {
 		return 0, err
 	}
-	if i <= last {
-		return l.storage.Term(i)
+	if len(ents) != 1 {
+		return 0, fmt.Errorf("invalid log index %v", i)
 	}
-	return l.entries[i-last-1].Term, nil
+	return ents[0].Term, nil
 }
 
 func (l *RaftLog) isUpToDate(term, index uint64) bool {
@@ -175,9 +175,19 @@ func (l *RaftLog) commitTo(tocommit uint64) bool {
 	return false
 }
 
-func (l *RaftLog) tryAppend(committed uint64, ents ...pb.Entry) bool {
+func (l *RaftLog) mustAppend(ent pb.Entry) {
+	l.entries = append(l.entries, ent)
+}
+
+func (l *RaftLog) maybeAppend(index, term, committed uint64, ents ...pb.Entry) bool {
 	// resolve conflicts
-	// TODO: compare term
+	it, err := l.Term(index)
+	if err != nil {
+		return false
+	}
+	if it != term {
+		return false
+	}
 	if len(ents) == 0 {
 		return true
 	}
