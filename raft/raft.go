@@ -366,8 +366,13 @@ func (r *Raft) Step(m pb.Message) error {
 			for _, e := range m.Entries {
 				r.appendEntry(*e)
 			}
-			for prID := range r.Prs {
-				r.sendAppend(prID)
+			if len(r.Prs) == 1 {
+				// it's single node cluster
+				r.updateCommitted()
+			} else {
+				for prID := range r.Prs {
+					r.sendAppend(prID)
+				}
 			}
 		case pb.MessageType_MsgAppend:
 		case pb.MessageType_MsgAppendResponse:
@@ -413,7 +418,7 @@ func (r *Raft) majorityCommitted() uint64 {
 		return cs[i] > cs[j]
 	})
 	majority := len(r.Prs)/2 + 1
-	return cs[majority]
+	return cs[majority-1] // index starts from 0
 }
 
 func (r *Raft) updateCommitted() bool {
