@@ -17,6 +17,7 @@ package raft
 import (
 	"errors"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"math"
 	"math/rand"
 	"sort"
 )
@@ -488,7 +489,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	for _, e := range m.Entries {
 		ents = append(ents, *e)
 	}
-	r.RaftLog.tryAppend(ents...)
+	r.RaftLog.tryAppend(m.Commit, ents...)
 	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex()})
 }
 
@@ -496,7 +497,7 @@ func (r *Raft) appendEntry(e pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	e.Index = li + 1
 	e.Term = r.Term
-	r.RaftLog.tryAppend(e)
+	r.RaftLog.tryAppend(math.MaxUint64, e)
 }
 
 // handleHeartbeat handle Heartbeat RPC request

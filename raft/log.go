@@ -175,7 +175,7 @@ func (l *RaftLog) commitTo(tocommit uint64) bool {
 	return false
 }
 
-func (l *RaftLog) tryAppend(ents ...pb.Entry) bool {
+func (l *RaftLog) tryAppend(committed uint64, ents ...pb.Entry) bool {
 	// resolve conflicts
 	// TODO: compare term
 	if len(ents) == 0 {
@@ -187,10 +187,12 @@ func (l *RaftLog) tryAppend(ents ...pb.Entry) bool {
 	}
 	if len(l.entries) == 0 {
 		l.entries = append(l.entries, ents...)
+		l.commitTo(min(committed, l.LastIndex()))
 		return true
 	}
 	p := l.entries[0].Index
 	l.entries = l.entries[:first-p]
 	l.entries = append(l.entries, ents...)
+	l.commitTo(min(committed, l.LastIndex()))
 	return true
 }
