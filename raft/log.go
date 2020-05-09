@@ -67,11 +67,17 @@ func newLog(storage Storage) *RaftLog {
 	if err != nil {
 		panic(err)
 	}
+	// put all entries into raftLog.entries to simplify its implementation
+	entries, err := storage.Entries(first, last+1)
+	if err != nil {
+		panic(err)
+	}
 	return &RaftLog{
 		storage:   storage,
 		committed: first - 1,
 		applied:   first - 1,
 		stabled:   last,
+		entries:   entries,
 	}
 }
 
