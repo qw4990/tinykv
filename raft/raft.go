@@ -185,6 +185,9 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// Your Code Here (2A).
+	if r.id == to {
+		return false
+	}
 	ents, err := r.RaftLog.Entries(r.Prs[to].Next, r.RaftLog.LastIndex()+1)
 	if err != nil {
 		panic(err)
@@ -194,7 +197,7 @@ func (r *Raft) sendAppend(to uint64) bool {
 		cloned := e
 		ps = append(ps, &cloned)
 	}
-	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps})
+	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps, LogTerm: r.Term, Index: r.Prs[to].Match, Commit: r.RaftLog.committed})
 	return true
 }
 
@@ -266,6 +269,13 @@ func (r *Raft) becomeLeader() {
 	}
 	r.Lead = r.id
 	r.State = StateLeader
+	for prID := range r.Prs {
+		if prID == r.id {
+			continue
+		}
+		r.Prs[prID].Match = 0
+		r.Prs[prID].Next = r.RaftLog.LastIndex() + 1
+	}
 	r.appendEntry(pb.Entry{})
 }
 
@@ -356,9 +366,11 @@ func (r *Raft) Step(m pb.Message) error {
 			for _, e := range m.Entries {
 				r.appendEntry(*e)
 			}
+			for prID := range r.Prs {
+				r.sendAppend(prID)
+			}
 		case pb.MessageType_MsgAppend:
 		case pb.MessageType_MsgAppendResponse:
-			fmt.Println("???????")
 			if m.Reject {
 				// TODO
 			} else {
@@ -369,7 +381,12 @@ func (r *Raft) Step(m pb.Message) error {
 				if pr.Next < m.Index+1 {
 					pr.Next = m.Index + 1
 				}
-				r.updateCommitted()
+				if r.updateCommitted() {
+					// broadcast to make followers apply these logs
+					for prID := range r.Prs {
+						r.sendAppend(prID)
+					}
+				}
 			}
 		case pb.MessageType_MsgRequestVote:
 		case pb.MessageType_MsgRequestVoteResponse:
@@ -399,9 +416,9 @@ func (r *Raft) majorityCommitted() uint64 {
 	return cs[majority]
 }
 
-func (r *Raft) updateCommitted() {
+func (r *Raft) updateCommitted() bool {
 	committed := r.majorityCommitted()
-	r.RaftLog.commitTo(committed)
+	return r.RaftLog.commitTo(committed)
 }
 
 func (r *Raft) bcastHeartbeat() {

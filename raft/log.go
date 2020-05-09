@@ -15,6 +15,7 @@
 package raft
 
 import (
+	"fmt"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -70,7 +71,7 @@ func newLog(storage Storage) *RaftLog {
 		storage:   storage,
 		committed: first - 1,
 		applied:   first - 1,
-		stabled:   last - 1,
+		stabled:   last,
 	}
 }
 
@@ -84,7 +85,14 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return l.entries
+	if len(l.entries) == 0 {
+		return nil
+	}
+	first := l.entries[0].Index
+	if l.stabled+1 < first {
+		panic(fmt.Sprintf("invalid stabled state %v %v", l.stabled, first))
+	}
+	return l.entries[l.stabled-first+1:]
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -95,32 +103,55 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 
 func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
 	ents := make([]pb.Entry, 0, 4)
-	if lo <= l.stabled {
-		tmp, err := l.storage.Entries(lo, min(l.stabled+1, hi))
+	last, err := l.storage.LastIndex()
+	if err != nil {
+		return nil, err
+	}
+	if lo <= last {
+		tmp, err := l.storage.Entries(lo, min(last+1, hi))
 		if err != nil {
 			return nil, err
 		}
 		ents = append(ents, tmp...)
 	}
-	if hi > l.stabled {
-		ents = append(ents, l.unstableEntries()[:hi-l.stabled]...)
+	if len(l.entries) > 0 {
+		first := l.entries[0].Index
+		if hi >= first {
+			begin := uint64(0)
+			if lo >= first {
+				begin = lo - first
+			}
+			ents = append(ents, l.entries[begin:min(hi-first, uint64(len(l.entries)))]...)
+		}
 	}
+
 	return ents, nil
 }
 
 // LastIndex return the last index of the lon entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	return l.stabled + uint64(len(l.entries))
+	if len(l.entries) == 0 {
+		last, err := l.storage.LastIndex()
+		if err != nil {
+			panic(err)
+		}
+		return last
+	}
+	return l.entries[len(l.entries)-1].Index
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
-	if i <= l.stabled {
+	last, err := l.storage.LastIndex()
+	if err != nil {
+		return 0, err
+	}
+	if i <= last {
 		return l.storage.Term(i)
 	}
-	return l.entries[i-l.stabled-1].Term, nil
+	return l.entries[i-last-1].Term, nil
 }
 
 func (l *RaftLog) isUpToDate(term, index uint64) bool {
@@ -132,10 +163,12 @@ func (l *RaftLog) isUpToDate(term, index uint64) bool {
 	return term > lastTerm || (lastTerm == term && index >= li)
 }
 
-func (l *RaftLog) commitTo(tocommit uint64) {
+func (l *RaftLog) commitTo(tocommit uint64) bool {
 	if l.committed < tocommit {
 		l.committed = tocommit
+		return true
 	}
+	return false
 }
 
 func (l *RaftLog) append(ents ...pb.Entry) {
