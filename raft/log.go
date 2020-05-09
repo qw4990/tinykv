@@ -94,7 +94,7 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 	if len(l.entries) == 0 {
 		return nil
 	}
-	first := l.entries[0].Index
+	first := l.FirstIndex()
 	if l.stabled+1 < first {
 		panic(fmt.Sprintf("invalid stabled state %v %v", l.stabled, first))
 	}
@@ -112,41 +112,29 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 }
 
 func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
-	ents := make([]pb.Entry, 0, 4)
-	last, err := l.storage.LastIndex()
-	if err != nil {
-		return nil, err
+	// NOTE: all entries are stored in RaftLog.entries
+	first := l.FirstIndex()
+	if lo < first || hi < first {
+		return nil, fmt.Errorf("invalid range lo=%v, hi=%v, first=%v", lo, hi, first)
 	}
-	if lo <= last {
-		tmp, err := l.storage.Entries(lo, min(last+1, hi))
-		if err != nil {
-			return nil, err
-		}
-		ents = append(ents, tmp...)
+	if hi > l.LastIndex()+1 {
+		hi = l.LastIndex() + 1
 	}
-	if len(l.entries) > 0 {
-		first := l.entries[0].Index
-		if hi >= first {
-			begin := uint64(0)
-			if lo >= first {
-				begin = lo - first
-			}
-			ents = append(ents, l.entries[begin:min(hi-first, uint64(len(l.entries)))]...)
-		}
-	}
+	return l.entries[lo-first : hi-first], nil
+}
 
-	return ents, nil
+func (l *RaftLog) FirstIndex() uint64 {
+	if len(l.entries) == 0 {
+		return 0
+	}
+	return l.entries[0].Index
 }
 
 // LastIndex return the last index of the lon entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
 	if len(l.entries) == 0 {
-		last, err := l.storage.LastIndex()
-		if err != nil {
-			panic(err)
-		}
-		return last
+		return 0
 	}
 	return l.entries[len(l.entries)-1].Index
 }
