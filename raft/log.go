@@ -98,7 +98,11 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	return nil
+	if len(l.entries) == 0 {
+		return nil
+	}
+	first := l.entries[0].Index
+	return l.entries[l.applied-first+1 : l.committed-first+1]
 }
 
 func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
