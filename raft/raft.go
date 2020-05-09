@@ -17,7 +17,6 @@ package raft
 import (
 	"errors"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
-	"math"
 	"math/rand"
 	"sort"
 )
@@ -421,6 +420,9 @@ func (r *Raft) majorityCommitted() uint64 {
 }
 
 func (r *Raft) updateCommitted() bool {
+	if r.State != StateLeader {
+		panic("invalid state")
+	}
 	committed := r.majorityCommitted()
 	return r.RaftLog.commitTo(committed)
 }
@@ -497,7 +499,7 @@ func (r *Raft) appendEntry(e pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	e.Index = li + 1
 	e.Term = r.Term
-	r.RaftLog.tryAppend(math.MaxUint64, e)
+	r.RaftLog.tryAppend(r.RaftLog.committed, e)
 }
 
 // handleHeartbeat handle Heartbeat RPC request
