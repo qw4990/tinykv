@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-	"fmt"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"math/rand"
 	"sort"
@@ -197,7 +196,7 @@ func (r *Raft) sendAppend(to uint64) bool {
 		cloned := e
 		ps = append(ps, &cloned)
 	}
-	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps, LogTerm: r.Term, Index: r.Prs[to].Match, Commit: r.RaftLog.committed})
+	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps, LogTerm: r.Term, Index: r.Prs[to].Next - 1, Commit: r.RaftLog.committed})
 	return true
 }
 
@@ -294,7 +293,6 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 	case m.Term < r.Term:
 		// TODO
-		fmt.Println("m.Term < r.Term", m, r.Term)
 		return nil
 	}
 
@@ -482,13 +480,23 @@ func (r *Raft) bcastVote() {
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
+	if m.Index < r.RaftLog.committed {
+		r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.committed})
+		return
+	}
+	ents := make([]pb.Entry, 0, len(m.Entries))
+	for _, e := range m.Entries {
+		ents = append(ents, *e)
+	}
+	r.RaftLog.tryAppend(ents...)
+	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex()})
 }
 
 func (r *Raft) appendEntry(e pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	e.Index = li + 1
 	e.Term = r.Term
-	r.RaftLog.append(e)
+	r.RaftLog.tryAppend(e)
 }
 
 // handleHeartbeat handle Heartbeat RPC request

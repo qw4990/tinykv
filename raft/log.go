@@ -98,11 +98,11 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	if len(l.entries) == 0 {
-		return nil
+	ents, err := l.Entries(l.applied+1, l.committed+1)
+	if err != nil {
+		panic(err)
 	}
-	first := l.entries[0].Index
-	return l.entries[l.applied-first+1 : l.committed-first+1]
+	return ents
 }
 
 func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
@@ -175,7 +175,22 @@ func (l *RaftLog) commitTo(tocommit uint64) bool {
 	return false
 }
 
-func (l *RaftLog) append(ents ...pb.Entry) {
-	// TODO: truncate duplicated entries
+func (l *RaftLog) tryAppend(ents ...pb.Entry) bool {
+	// resolve conflicts
+	// TODO: compare term
+	if len(ents) == 0 {
+		return true
+	}
+	first := ents[0].Index
+	if first > l.LastIndex()+1 || first <= l.stabled {
+		return false
+	}
+	if len(l.entries) == 0 {
+		l.entries = append(l.entries, ents...)
+		return true
+	}
+	p := l.entries[0].Index
+	l.entries = l.entries[:first-p]
 	l.entries = append(l.entries, ents...)
+	return true
 }
