@@ -108,6 +108,18 @@ type Progress struct {
 	Match, Next uint64
 }
 
+func (p *Progress) maybeUpdate(n uint64) bool {
+	updated := false
+	if p.Match < n {
+		p.Match = n
+		updated = true
+	}
+	if p.Next < n+1 {
+		p.Next = n + 1
+	}
+	return updated
+}
+
 type Raft struct {
 	id uint64
 
@@ -384,16 +396,10 @@ func (r *Raft) Step(m pb.Message) error {
 		case pb.MessageType_MsgAppendResponse:
 			pr := r.Prs[m.From]
 			if m.Reject {
-				// update this peer's index and send append msg again
-				pr.Next = m.Index
+				pr.Next = m.Index // pr.Next-1 will be sent in the next time
 				r.sendAppend(m.From)
 			} else {
-				if pr.Match < m.Index {
-					pr.Match = m.Index
-				}
-				if pr.Next < m.Index+1 {
-					pr.Next = m.Index + 1
-				}
+				pr.maybeUpdate(m.Index)
 				if r.updateCommitted() {
 					// broadcast to make followers apply these logs
 					for prID := range r.Prs {
@@ -519,6 +525,7 @@ func (r *Raft) appendEntry(e pb.Entry) {
 	e.Index = li + 1
 	e.Term = r.Term
 	r.RaftLog.append(e)
+	r.Prs[r.id].maybeUpdate(r.RaftLog.LastIndex())
 }
 
 // handleHeartbeat handle Heartbeat RPC request
