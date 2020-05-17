@@ -434,7 +434,7 @@ func (r *Raft) updateCommitted() bool {
 		panic("invalid state")
 	}
 	committed := r.majorityCommitted()
-	return r.RaftLog.commitTo(committed)
+	return r.RaftLog.maybeCommit(committed, r.Term)
 }
 
 func (r *Raft) bcastHeartbeat() {

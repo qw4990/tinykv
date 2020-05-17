@@ -175,6 +175,17 @@ func (l *RaftLog) isUpToDate(term, index uint64) bool {
 	return term > lastTerm || (lastTerm == term && index >= li)
 }
 
+func (l *RaftLog) maybeCommit(maxIndex, term uint64) bool {
+	logTerm, err := l.Term(maxIndex)
+	if err != nil {
+		logTerm = 0
+	}
+	if maxIndex > l.committed && logTerm == term { // raft section 5.4.2
+		return l.commitTo(maxIndex)
+	}
+	return false
+}
+
 func (l *RaftLog) commitTo(tocommit uint64) bool {
 	if l.committed < tocommit {
 		l.committed = tocommit
