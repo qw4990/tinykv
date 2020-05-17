@@ -180,6 +180,11 @@ func newRaft(c *Config) *Raft {
 	for _, prID := range c.peers {
 		prs[prID] = new(Progress)
 	}
+
+	hs, _, err := c.Storage.InitialState()
+	if err != nil {
+		panic(err)
+	}
 	r := &Raft{
 		id:               c.ID,
 		Lead:             None,
@@ -187,6 +192,11 @@ func newRaft(c *Config) *Raft {
 		electionTimeout:  c.ElectionTick,
 		Prs:              prs,
 		RaftLog:          newLog(c.Storage),
+	}
+	if !IsEmptyHardState(hs) {
+		r.RaftLog.committed = hs.Commit
+		r.Term = hs.Term
+		r.Vote = hs.Vote
 	}
 	r.becomeFollower(r.Term, None)
 	return r
@@ -259,9 +269,11 @@ func (r *Raft) tickHeartbeat() {
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	// Your Code Here (2A).
-	r.Term = term
+	if term != r.Term {
+		r.Term = term
+		r.Vote = None
+	}
 	r.Lead = lead
-	r.Vote = None
 	r.State = StateFollower
 }
 
