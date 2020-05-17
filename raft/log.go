@@ -114,6 +114,9 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 
 func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
 	// NOTE: all entries are stored in RaftLog.entries
+	if len(l.entries) == 0 {
+		return nil, nil
+	}
 	first := l.FirstIndex()
 	if lo < first || hi < first {
 		return nil, fmt.Errorf("invalid range lo=%v, hi=%v, first=%v", lo, hi, first)
@@ -149,6 +152,9 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	ents, err := l.Entries(i, i+1)
 	if err != nil {
 		return 0, err
+	}
+	if len(ents) == 0 { // not found
+		return 0, nil
 	}
 	if len(ents) != 1 {
 		return 0, fmt.Errorf("invalid log index %v", i)
