@@ -486,7 +486,12 @@ func (r *Raft) bcastVote() {
 		if prID == r.id {
 			continue
 		}
-		r.send(pb.Message{MsgType: pb.MessageType_MsgRequestVote, To: prID})
+		logIdx := r.RaftLog.LastIndex()
+		logTerm, err := r.RaftLog.Term(logIdx)
+		if err != nil {
+			panic(err)
+		}
+		r.send(pb.Message{MsgType: pb.MessageType_MsgRequestVote, To: prID, Index: r.RaftLog.LastIndex(), LogTerm: logTerm})
 	}
 }
 
