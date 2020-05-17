@@ -121,8 +121,12 @@ func (l *RaftLog) Entries(lo, hi uint64) ([]pb.Entry, error) {
 	if lo < first || hi < first {
 		return nil, fmt.Errorf("invalid range lo=%v, hi=%v, first=%v", lo, hi, first)
 	}
-	if hi > l.LastIndex()+1 {
-		hi = l.LastIndex() + 1
+	last := l.LastIndex()
+	if lo > last {
+		return nil, nil
+	}
+	if hi > last+1 {
+		hi = last + 1
 	}
 	return l.entries[lo-first : hi-first], nil
 }
@@ -200,13 +204,9 @@ func (l *RaftLog) maybeAppend(index, term, committed uint64, ents ...pb.Entry) b
 	if !l.matchTerm(index, term) {
 		return false
 	}
-	if len(ents) == 0 {
-		return true
-	}
 
 	lastnewi := index + uint64(len(ents))
 	ci := l.findConflict(ents...)
-
 	switch {
 	case ci == 0: // already appended
 	case ci <= l.committed:

@@ -196,7 +196,12 @@ func (r *Raft) sendAppend(to uint64) bool {
 		cloned := e
 		ps = append(ps, &cloned)
 	}
-	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps, LogTerm: r.Term, Index: r.Prs[to].Next - 1, Commit: r.RaftLog.committed})
+	logIdx := r.Prs[to].Next - 1
+	logTerm, err := r.RaftLog.Term(logIdx)
+	if err != nil {
+		panic(err)
+	}
+	r.send(pb.Message{MsgType: pb.MessageType_MsgAppend, To: to, Entries: ps, LogTerm: logTerm, Index: logIdx, Commit: r.RaftLog.committed})
 	return true
 }
 
@@ -346,6 +351,9 @@ func (r *Raft) Step(m pb.Message) error {
 			result := r.winVote()
 			if result == 1 {
 				r.becomeLeader()
+				for prID := range r.Prs {
+					r.sendAppend(prID)
+				}
 			} else if result == -1 {
 				r.becomeFollower(r.Term, None)
 			}
@@ -374,10 +382,12 @@ func (r *Raft) Step(m pb.Message) error {
 			}
 		case pb.MessageType_MsgAppend:
 		case pb.MessageType_MsgAppendResponse:
+			pr := r.Prs[m.From]
 			if m.Reject {
-				// TODO
+				// update this peer's index and send append msg again
+				pr.Next = m.Index
+				r.sendAppend(m.From)
 			} else {
-				pr := r.Prs[m.From]
 				if pr.Match < m.Index {
 					pr.Match = m.Index
 				}
@@ -492,7 +502,11 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		ents = append(ents, *e)
 	}
 	committed := r.RaftLog.maybeAppend(m.Index, m.LogTerm, m.Commit, ents...)
-	r.send(pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex(), Reject: !committed})
+	msg := pb.Message{To: m.From, MsgType: pb.MessageType_MsgAppendResponse, Index: r.RaftLog.LastIndex(), Reject: !committed}
+	if !committed {
+		msg.Index = m.Index
+	}
+	r.send(msg)
 }
 
 func (r *Raft) appendEntry(e pb.Entry) {
