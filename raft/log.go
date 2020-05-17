@@ -16,6 +16,7 @@ package raft
 
 import (
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -172,34 +173,61 @@ func (l *RaftLog) commitTo(tocommit uint64) bool {
 	return false
 }
 
-func (l *RaftLog) mustAppend(ent pb.Entry) {
-	l.entries = append(l.entries, ent)
-}
-
-func (l *RaftLog) maybeAppend(index, term, committed uint64, ents ...pb.Entry) bool {
-	// resolve conflicts
+func (l *RaftLog) matchTerm(index, term uint64) bool {
 	it, err := l.Term(index)
 	if err != nil {
 		return false
 	}
-	if it != term {
+	return it == term
+}
+
+func (l *RaftLog) findConflict(ents ...pb.Entry) uint64 {
+	for _, ne := range ents {
+		if !l.matchTerm(ne.Index, ne.Term) {
+			return ne.Index
+		}
+	}
+	return 0
+}
+
+func (l *RaftLog) maybeAppend(index, term, committed uint64, ents ...pb.Entry) bool {
+	if !l.matchTerm(index, term) {
 		return false
 	}
 	if len(ents) == 0 {
 		return true
 	}
-	first := ents[0].Index
-	if first > l.LastIndex()+1 || first <= l.stabled {
-		return false
+
+	lastnewi := index + uint64(len(ents))
+	ci := l.findConflict(ents...)
+
+	switch {
+	case ci == 0: // already appended
+	case ci <= l.committed:
+		log.Panicf("entry %d conflict with committed entry [committed(%d)]", ci, l.committed)
+	default:
+		l.append(ents[ci-index-1:]...)
+	}
+	l.commitTo(min(committed, lastnewi))
+	return true
+}
+
+func (l *RaftLog) append(ents ...pb.Entry) {
+	if len(ents) == 0 {
+		return
 	}
 	if len(l.entries) == 0 {
 		l.entries = append(l.entries, ents...)
-		l.commitTo(min(committed, l.LastIndex()))
-		return true
+		return
 	}
-	p := l.entries[0].Index
-	l.entries = l.entries[:first-p]
+	index := ents[0].Index
+	if index <= l.stabled { // update the stabled index
+		l.stabled = index - 1
+	}
+	first := l.entries[0].Index
+	if index > first+uint64(len(l.entries))+1 {
+		log.Panicf("invalid index lo=%v, hi=%v", first+uint64(len(l.entries))+1, index)
+	}
+	l.entries = l.entries[:index-first] // truncate and append
 	l.entries = append(l.entries, ents...)
-	l.commitTo(min(committed, l.LastIndex()))
-	return true
 }

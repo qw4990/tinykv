@@ -499,7 +499,7 @@ func (r *Raft) appendEntry(e pb.Entry) {
 	li := r.RaftLog.LastIndex()
 	e.Index = li + 1
 	e.Term = r.Term
-	r.RaftLog.mustAppend(e)
+	r.RaftLog.append(e)
 }
 
 // handleHeartbeat handle Heartbeat RPC request
