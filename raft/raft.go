@@ -176,14 +176,19 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	// Your Code Here (2A).
+	hs, cs, err := c.Storage.InitialState()
+	if err != nil {
+		panic(err)
+	}
 	prs := make(map[uint64]*Progress)
 	for _, prID := range c.peers {
 		prs[prID] = new(Progress)
 	}
-
-	hs, _, err := c.Storage.InitialState()
-	if err != nil {
-		panic(err)
+	if len(c.peers) == 0 {
+		prs[c.ID] = new(Progress)
+	}
+	for _, node := range cs.Nodes {
+		prs[node] = new(Progress)
 	}
 	r := &Raft{
 		id:               c.ID,
