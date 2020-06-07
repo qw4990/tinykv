@@ -16,7 +16,6 @@ package raft
 
 import (
 	"errors"
-
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -83,13 +82,15 @@ func (rd Ready) appliedCursor() uint64 {
 type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
+	prevSoftState *SoftState
+	prevHardState pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
 	raft := newRaft(config)
-	return &RawNode{raft}, nil
+	return &RawNode{raft, raft.softState(), raft.hardState()}, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -157,14 +158,26 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{
-		SoftState:        rn.Raft.softState(),
-		HardState:        rn.Raft.hardState(),
+	rd := Ready{
 		Entries:          rn.Raft.RaftLog.unstableEntries(),
 		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
 		Snapshot:         pb.Snapshot{},
 		Messages:         rn.Raft.msgs,
 	}
+
+	newSoftState := rn.Raft.softState()
+	if (*newSoftState) != (*rn.prevSoftState) {
+		rd.SoftState = newSoftState
+		rn.prevSoftState = newSoftState
+	}
+
+	newHardState := rn.Raft.hardState()
+	if !isHardStateEqual(newHardState, rn.prevHardState) {
+		rn.prevHardState = newHardState
+		rd.HardState = newHardState
+	}
+
+	return rd
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
