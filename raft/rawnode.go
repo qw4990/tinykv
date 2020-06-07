@@ -76,7 +76,8 @@ type RawNode struct {
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
-	return nil, nil
+	raft := newRaft(config)
+	return &RawNode{raft}, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -144,7 +145,14 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{}
+	return Ready{
+		SoftState:        rn.Raft.softState(),
+		HardState:        rn.Raft.hardState(),
+		Entries:          rn.Raft.RaftLog.unstableEntries(),
+		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
+		Snapshot:         pb.Snapshot{},
+		Messages:         rn.Raft.msgs,
+	}
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
