@@ -235,7 +235,8 @@ func (r *Raft) sendAppend(to uint64) bool {
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
 	// Your Code Here (2A).
-	r.send(pb.Message{MsgType: pb.MessageType_MsgHeartbeat, To: to})
+	commit := min(r.Prs[to].Match, r.RaftLog.committed)
+	r.send(pb.Message{MsgType: pb.MessageType_MsgHeartbeat, To: to, Commit: commit})
 }
 
 func (r *Raft) send(m pb.Message) {
