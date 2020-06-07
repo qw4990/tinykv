@@ -311,6 +311,7 @@ func (r *Raft) becomeLeader() {
 		r.Prs[prID].Next = r.RaftLog.LastIndex() + 1
 	}
 	r.appendEntry(pb.Entry{})
+	r.updateCommitted()
 }
 
 // Step the entrance of handle message, see `MessageType`
@@ -560,6 +561,17 @@ func (r *Raft) hardState() pb.HardState {
 		Term:   r.Term,
 		Vote:   r.Vote,
 		Commit: r.RaftLog.committed,
+	}
+}
+
+func (r *Raft) advance(rd Ready) {
+	if newApplied := rd.appliedCursor(); newApplied > 0 {
+		r.RaftLog.applyTo(newApplied)
+	}
+
+	if len(rd.Entries) > 0 {
+		e := rd.Entries[len(rd.Entries)-1]
+		r.RaftLog.stableTo(e.Index, e.Term)
 	}
 }
 

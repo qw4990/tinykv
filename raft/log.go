@@ -229,6 +229,17 @@ func (l *RaftLog) maybeAppend(index, term, committed uint64, ents ...pb.Entry) b
 	return true
 }
 
+func (l *RaftLog) stableTo(i, t uint64) {
+	l.stabled = i + 1
+}
+
+func (l *RaftLog) applyTo(i uint64) {
+	if i == 0 {
+		return
+	}
+	l.applied = i
+}
+
 func (l *RaftLog) append(ents ...pb.Entry) {
 	if len(ents) == 0 {
 		return

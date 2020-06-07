@@ -67,6 +67,18 @@ type Ready struct {
 	Messages []pb.Message
 }
 
+func (rd Ready) appliedCursor() uint64 {
+	if n := len(rd.CommittedEntries); n > 0 {
+		return rd.CommittedEntries[n-1].Index
+	}
+	if rd.Snapshot.Metadata != nil {
+		if index := rd.Snapshot.Metadata.Index; index > 0 {
+			return index
+		}
+	}
+	return 0
+}
+
 // RawNode is a wrapper of Raft.
 type RawNode struct {
 	Raft *Raft
@@ -165,6 +177,7 @@ func (rn *RawNode) HasReady() bool {
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
+	rn.Raft.advance(rd)
 }
 
 // GetProgress return the the Progress of this node and its peers, if this
