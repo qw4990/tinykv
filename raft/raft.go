@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"math/rand"
 
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -144,6 +145,8 @@ type Raft struct {
 	// valid message from current leader when it is a follower.
 	electionElapsed int
 
+	randomizedElectionTimeout int
+
 	// leadTransferee is id of the leader transfer target when its value is not zero.
 	// Follow the procedure defined in section 3.10 of Raft phd thesis.
 	// (https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf)
@@ -210,7 +213,7 @@ func newRaft(c *Config) *Raft {
 	if c.Applied > 0 {
 		r.RaftLog.appliedTo(c.Applied)
 	}
-	return nil
+	return r
 }
 
 // sendAppend sends an append RPC with new entries (if any) and the
@@ -274,7 +277,7 @@ func (r *Raft) tick() {
 	switch r.State {
 	case StateFollower, StateCandidate:
 		r.electionElapsed++
-		if r.electionElapsed >= r.electionTimeout {
+		if r.electionElapsed >= r.randomizedElectionTimeout {
 			r.electionElapsed = 0
 			r.leadTransferee = None
 			r.Step(pb.Message{
@@ -308,6 +311,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.Vote = None
 	r.votes = make(map[uint64]bool)
 	r.electionElapsed = 0
+	r.randomizedElectionTimeout = r.electionTimeout + rand.Intn(r.electionTimeout)
 	r.heartbeatElapsed = 0
 	r.leadTransferee = None
 	r.State = StateFollower
@@ -329,6 +333,7 @@ func (r *Raft) becomeCandidate() {
 	r.leadTransferee = 0
 	r.State = StateCandidate
 	r.Lead = None
+	r.randomizedElectionTimeout = r.electionTimeout + rand.Intn(r.electionTimeout)
 }
 
 // becomeLeader transform this peer's state to leader
