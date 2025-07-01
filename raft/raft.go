@@ -399,8 +399,8 @@ func (r *Raft) Step(m pb.Message) error {
 	case pb.MessageType_MsgHeartbeat:
 		r.handleHeartbeat(m)
 
-		// case pb.MessageType_MsgHeartbeatResponse:
-		// 	r.handleHeartbeatResp(m)
+	case pb.MessageType_MsgHeartbeatResponse:
+		r.handleHeartbeatResp(m)
 
 		// case pb.MessageType_MsgSnapshot:
 		// 	r.handleSnapshot(m)
@@ -813,4 +813,14 @@ func (r *Raft) append_or_rewriteEntry(prevLogIndex uint64, entries []*pb.Entry) 
 		}
 	}
 	// 如果完全匹配，没有冲突，啥也不做
+}
+
+func (r *Raft) handleHeartbeatResp(m pb.Message) {
+	if m.Term > r.Term {
+		r.becomeFollower(m.Term, None)
+		return
+	}
+	if m.Commit < r.RaftLog.committed || r.Prs[m.From].Match < r.RaftLog.LastIndex() {
+		r.sendAppend(m.From)
+	}
 }
