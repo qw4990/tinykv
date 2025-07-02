@@ -383,6 +383,9 @@ func (r *Raft) Step(m pb.Message) error {
 	case pb.MessageType_MsgBeat:
 		r.SendHeartbeat()
 
+	case pb.MessageType_MsgPropose:
+		r.HandlePropose(m)
+
 	// remote / network message
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
@@ -393,8 +396,8 @@ func (r *Raft) Step(m pb.Message) error {
 	case pb.MessageType_MsgAppend:
 		r.handleAppendEntries(m)
 
-	// case pb.MessageType_MsgAppendResponse:
-	// 	r.handleAppendResponse(m)
+	case pb.MessageType_MsgAppendResponse:
+		r.handleAppendResponse(m)
 
 	case pb.MessageType_MsgHeartbeat:
 		r.handleHeartbeat(m)
@@ -461,15 +464,11 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		return
 	}
 
-	// log.Infof("[Node %d] Append %d entries starting from index %d",
-	// 	r.id, len(m.Entries), prevIndex+1)
 	r.append_or_rewriteEntry(m.Index, m.Entries)
 
 	if m.Commit > r.RaftLog.committed {
 		matchIndex := m.Index + uint64(len(m.Entries))
 		newCommit := min(m.Commit, matchIndex)
-		// log.Infof("[Node %d] Advance commit index from %d to %d",
-		// 	r.id, r.RaftLog.committed, newCommit)
 		r.RaftLog.committed = newCommit
 	}
 
@@ -711,7 +710,6 @@ func (r *Raft) brocAppend() bool {
 func (r *Raft) maybeCommit() bool {
 	// 遍历所有 Progress，找到 matchIndex 的中位数
 	mci := r.RaftLog.maybeCommit(r.Prs, r.Term)
-	// log.Infof("[maybeCommit] trying to commit up to %d, current committed=%d", mci, r.RaftLog.committed)
 	if mci > r.RaftLog.committed {
 		r.RaftLog.commitTo(mci)
 		r.brocAppend()
@@ -822,5 +820,61 @@ func (r *Raft) handleHeartbeatResp(m pb.Message) {
 	}
 	if m.Commit < r.RaftLog.committed || r.Prs[m.From].Match < r.RaftLog.LastIndex() {
 		r.sendAppend(m.From)
+	}
+}
+
+func (r *Raft) HandlePropose(m pb.Message) {
+	if r.State != StateLeader {
+		return
+	}
+	if r.leadTransferee != None {
+		return
+	}
+	if m.Term < r.Term {
+		for _, ent := range m.Entries {
+			ent.Term = r.Term
+		}
+	}
+	r.appendEntry(m.Entries...)
+	lastIndex := r.RaftLog.LastIndex()
+	r.updateProgress(r.id, lastIndex, lastIndex+1) // 更新自己的进度
+	if !r.brocAppend() {                           // 确认方法名拼写
+		panic(ErrProposalDropped)
+	}
+	r.maybeCommit()
+}
+
+func (r *Raft) handleAppendResponse(m pb.Message) {
+	pr, ok := r.Prs[m.From]
+	if !ok { // invalid node number
+		return
+	}
+
+	if m.Reject {
+		// Append 被拒绝，Leader 需要回退 nextIndex
+		// m.Index 是 hintIndex，帮助我们快速找到可接受的日志位置
+		// 如果 m.Index = 0，没有 hint，按传统回退
+		if m.Index > 0 {
+			pr.Next = m.Index
+		} else if pr.Next > 1 {
+			pr.Next--
+		}
+		r.sendAppend(m.From)
+		return
+	}
+
+	// 成功 append：m.Index 是 follower 最新的 Match Index
+	// 一定要保证只有在未 reject 时才更新
+	pr.Match = m.Index
+	pr.Next = pr.Match + 1
+
+	// 更新 progress 后尝试推进 commit
+	r.maybeCommit()
+	if r.leadTransferee == m.From && pr.Match == r.RaftLog.LastIndex() {
+		r.send(pb.Message{
+			To:      m.From,
+			MsgType: pb.MessageType_MsgTimeoutNow,
+		})
+		r.leadTransferee = None // 清除 leadTransferee
 	}
 }
