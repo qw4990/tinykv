@@ -405,8 +405,8 @@ func (r *Raft) Step(m pb.Message) error {
 	case pb.MessageType_MsgHeartbeatResponse:
 		r.handleHeartbeatResp(m)
 
-		// case pb.MessageType_MsgSnapshot:
-		// 	r.handleSnapshot(m)
+	case pb.MessageType_MsgSnapshot:
+		r.handleSnapshot(m)
 
 		// case pb.MessageType_MsgTransferLeader:
 		// 	r.handleTransferLeader(m)
@@ -513,6 +513,52 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 // handleSnapshot handle Snapshot RPC request
 func (r *Raft) handleSnapshot(m pb.Message) {
 	// Your Code Here (2C).
+	if r.RaftLog.pendingSnapshot != nil {
+		return
+	}
+	snapshot := m.Snapshot
+	if snapshot == nil || snapshot.Metadata == nil {
+		return
+	}
+
+	snapshotIndex := snapshot.Metadata.Index
+	snapshotTerm := snapshot.Metadata.Term
+
+	if r.RaftLog.committed >= snapshotIndex {
+		return
+	}
+
+	// 转为 follower
+	r.becomeFollower(snapshotTerm, m.From)
+
+	// 应用 snapshot
+	r.RaftLog.pendingSnapshot = snapshot
+	r.RaftLog.committed = snapshotIndex
+	r.RaftLog.applied = snapshotIndex
+	r.RaftLog.stabled = snapshotIndex
+	r.RaftLog.entries = nil
+
+	r.Prs = make(map[uint64]*Progress)
+	for _, id := range snapshot.Metadata.ConfState.Nodes {
+		r.Prs[id] = &Progress{}
+	}
+
+	// 设置自己 Match 和 Next
+	if pr, ok := r.Prs[r.id]; ok {
+		pr.Match = snapshotIndex
+		pr.Next = snapshotIndex + 1
+	}
+
+	// 响应 Leader
+	resp := pb.Message{
+		MsgType: pb.MessageType_MsgAppendResponse,
+		To:      m.From,
+		From:    r.id,
+		Term:    r.Term,
+		Index:   snapshotIndex,
+		Reject:  false,
+	}
+	r.send(resp)
 }
 
 // addNode add a new node to raft group

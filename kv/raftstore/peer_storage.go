@@ -344,6 +344,11 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 // Apply the peer with given snapshot
 func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
+	if raft.IsEmptySnap(snapshot) {
+		log.Warnf("%v received empty snapshot, skip apply", ps.Tag)
+		return nil, nil
+	}
+
 	snapData := new(rspb.RaftSnapshotData)
 	if err := snapData.Unmarshal(snapshot.Data); err != nil {
 		return nil, err
@@ -353,7 +358,53 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	// and send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
 	// and ps.clearExtraData to delete stale data
 	// Your Code Here (2C).
-	return nil, nil
+	snapRegion := snapData.Region
+
+	if ps.isInitialized() {
+		if err := ps.clearMeta(kvWB, raftWB); err != nil {
+			return nil, err
+		}
+		ps.clearExtraData(snapRegion)
+	}
+
+	// 3. 更新 raftState（内存）: LastIndex、LastTerm
+	ps.raftState.LastIndex = snapshot.Metadata.Index
+	ps.raftState.LastTerm = snapshot.Metadata.Term
+
+	// 4. 更新 applyState（内存）: AppliedIndex 和 TruncatedState
+	ps.applyState.AppliedIndex = snapshot.Metadata.Index
+	ps.applyState.TruncatedState = &rspb.RaftTruncatedState{
+		Index: snapshot.Metadata.Index,
+		Term:  snapshot.Metadata.Term,
+	}
+	kvWB.SetMeta(meta.ApplyStateKey(snapRegion.Id), ps.applyState)
+
+	// 5. 更新 snapState（内存）：表示 snapshot 正在被 apply
+	ps.snapState.StateType = snap.SnapState_Applying
+
+	// 6. 通知 region_worker 执行 RegionTaskApply，实际应用 snapshot 中的 kv 数据
+	ch := make(chan bool, 1)
+	ps.regionSched <- &runner.RegionTaskApply{
+		RegionId: snapRegion.Id,
+		Notifier: ch,
+		SnapMeta: snapshot.Metadata,
+		StartKey: snapRegion.StartKey,
+		EndKey:   snapRegion.EndKey,
+	}
+	<-ch // 等待 region worker 应用完成
+
+	// 7. 更新 ps.region 为新的 region（注意：这里是内存更新）
+	prevRegion := ps.region
+	ps.region = snapRegion
+
+	// 8. 持久化 RegionLocalState 到 kv engine 的 meta 区
+	meta.WriteRegionState(kvWB, snapRegion, rspb.PeerState_Normal)
+
+	// 9. 返回 ApplySnapResult，用于后续处理
+	return &ApplySnapResult{
+		PrevRegion: prevRegion,
+		Region:     snapRegion,
+	}, nil
 }
 
 // Save memory states to disk.
