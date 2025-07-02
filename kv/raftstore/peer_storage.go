@@ -331,7 +331,35 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (*ApplySnapResult, error) {
 	// Hint: you may call `Append()` and `ApplySnapshot()` in this function
 	// Your Code Here (2B/2C).
-	return nil, nil
+	kvWB := &engine_util.WriteBatch{}
+	raftWB := &engine_util.WriteBatch{}
+
+	var applySnapResult *ApplySnapResult
+	var err error
+
+	// 1. 如果有 snapshot，先应用快照
+	if !raft.IsEmptySnap(&ready.Snapshot) {
+		applySnapResult, err = ps.ApplySnapshot(&ready.Snapshot, kvWB, raftWB)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 2. 追加日志条目
+	if len(ready.Entries) > 0 {
+		ps.Append(ready.Entries, raftWB)
+	}
+
+	// 3. 更新 HardState 并保存
+	if !raft.IsEmptyHardState(ready.HardState) {
+		ps.raftState.HardState = &ready.HardState
+	}
+	raftWB.SetMeta(meta.RaftStateKey(ps.region.Id), ps.raftState)
+	// 4. 写入 RocksDB
+	kvWB.WriteToDB(ps.Engines.Kv)
+	raftWB.WriteToDB(ps.Engines.Raft)
+
+	return applySnapResult, nil
 }
 
 func (ps *PeerStorage) ClearData() {
