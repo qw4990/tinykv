@@ -70,12 +70,27 @@ type Ready struct {
 type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
+	prevSoftSt *SoftState
+	prevHardSt pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
 	// Your Code Here (2A).
-	return nil, nil
+	r := newRaft(config)
+	rn := &RawNode{
+		Raft: r,
+		prevSoftSt: &SoftState{
+			Lead:      r.Lead,
+			RaftState: r.State,
+		},
+		prevHardSt: pb.HardState{
+			Term:   r.Term,
+			Vote:   r.Vote,
+			Commit: r.RaftLog.committed,
+		},
+	}
+	return rn, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -143,12 +158,75 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
-	return Ready{}
+	rd := Ready{
+		Entries: rn.Raft.RaftLog.unstableEntries(),
+	}
+
+	curSoftSt := &SoftState{
+		Lead:      rn.Raft.Lead,
+		RaftState: rn.Raft.State,
+	}
+	if !isSoftStateEqual(curSoftSt, rn.prevSoftSt) {
+		rd.SoftState = curSoftSt
+	}
+
+	curHardSt := pb.HardState{
+		Term:   rn.Raft.Term,
+		Vote:   rn.Raft.Vote,
+		Commit: rn.Raft.RaftLog.committed,
+	}
+	if !isHardStateEqual(curHardSt, rn.prevHardSt) && !isHardStateEmpty(curHardSt) {
+		rd.HardState = curHardSt
+	}
+	if rn.Raft.RaftLog.pendingSnapshot != nil {
+		rd.Snapshot = *rn.Raft.RaftLog.pendingSnapshot
+	}
+
+	// CommittedEntries：已提交、但尚未 apply 的日志
+	commitIndex := rn.Raft.RaftLog.committed
+	appliedIndex := rn.Raft.RaftLog.applied
+	if commitIndex > appliedIndex {
+		ents, err := rn.Raft.RaftLog.Entries(appliedIndex+1, commitIndex+1)
+		if err != nil {
+			panic(err)
+		}
+		rd.CommittedEntries = ents
+	}
+	if len(rn.Raft.msgs) == 0 {
+		rd.Messages = nil
+	} else {
+		rd.Messages = rn.Raft.msgs
+	}
+	// 清空消息缓存
+	rn.Raft.msgs = nil
+	return rd
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
+	r := rn.Raft
+
+	// 检查是否有待持久化的日志条目
+	if len(r.RaftLog.unstableEntries()) > 0 {
+		return true
+	}
+
+	// 检查是否有待提交但未应用的条目
+	if r.RaftLog.applied < r.RaftLog.committed {
+		return true
+	}
+
+	if r.RaftLog.pendingSnapshot != nil {
+		return true
+	}
+
+	// 检查是否有待发送消息
+	if len(r.msgs) > 0 {
+		return true
+	}
+
+	// 都没有，返回 false
 	return false
 }
 
@@ -156,6 +234,17 @@ func (rn *RawNode) HasReady() bool {
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
+	if len(rd.Entries) > 0 {
+		last := rd.Entries[len(rd.Entries)-1].Index
+		rn.Raft.RaftLog.stabled = last
+	}
+	if len(rd.CommittedEntries) > 0 {
+		last := rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
+		rn.Raft.RaftLog.appliedTo(last)
+	}
+	if rd.Snapshot.Metadata != nil {
+		rn.Raft.RaftLog.pendingSnapshot = nil
+	}
 }
 
 // GetProgress return the Progress of this node and its peers, if this
