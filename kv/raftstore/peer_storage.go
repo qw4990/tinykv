@@ -308,6 +308,36 @@ func ClearMeta(engines *engine_util.Engines, kvWB, raftWB *engine_util.WriteBatc
 // never be committed
 func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.WriteBatch) error {
 	// Your Code Here (2B).
+	// Step 1: 没有条目则直接返回
+	if len(entries) == 0 {
+		return nil
+	}
+
+	// Step 2: 获取当前将要持久化的最大 index
+	stableLast := entries[len(entries)-1].Index
+
+	// Step 3: 获取之前持久化的最大 index（也可以用 ps.raftState.LastIndex，但这里更保险）
+	prevLast, err := ps.LastIndex()
+	if err != nil {
+		return err
+	}
+
+	// Step 4: 更新 raftState 的 LastIndex 和 LastTerm
+	ps.raftState.LastIndex = stableLast
+	ps.raftState.LastTerm = entries[len(entries)-1].Term
+
+	// Step 5: 追加新的日志条目
+	for _, ent := range entries {
+		key := meta.RaftLogKey(ps.region.Id, ent.Index)
+		raftWB.SetMeta(key, &ent)
+	}
+
+	// Step 6: 删除被截断的日志（这些日志永远不会被提交）
+	for i := stableLast + 1; i <= prevLast; i++ {
+		key := meta.RaftLogKey(ps.region.Id, i)
+		raftWB.DeleteMeta(key)
+	}
+
 	return nil
 }
 
