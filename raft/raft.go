@@ -423,7 +423,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	if r.RaftLog.pendingSnapshot != nil {
 		return
 	}
-	if m.Term < r.Term {
+	if m.Term < r.Term { // the message is outdated, reject this request
 		r.send(pb.Message{
 			MsgType: pb.MessageType_MsgAppendResponse,
 			To:      m.From,
@@ -434,21 +434,13 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		})
 		return
 	}
-
-	if m.Term > r.Term {
+	if m.Term > r.Term || // follow the new leader
+		(r.State != StateLeader) { // update follower info
 		r.becomeFollower(m.Term, m.From)
 	}
-
-	if r.State == StateLeader {
+	if r.State == StateLeader { // only follower or candidate need to handle append requests
 		return
 	}
-
-	if r.State == StateCandidate {
-		r.becomeFollower(m.Term, m.From)
-	}
-
-	r.electionElapsed = 0
-	r.Lead = m.From
 
 	ok, conflictIndex, conflictTerm := r.checkLogMatching(m.Index, m.LogTerm)
 	if !ok {
@@ -472,8 +464,6 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		r.RaftLog.committed = newCommit
 	}
 
-	// log.Infof("[Node %d] Accept MsgAppend. Send success response with Index %d",
-	// 	r.id, r.RaftLog.LastIndex())
 	r.send(pb.Message{
 		MsgType: pb.MessageType_MsgAppendResponse,
 		To:      m.From,
@@ -708,7 +698,6 @@ func (r *Raft) brocAppend() bool {
 }
 
 func (r *Raft) maybeCommit() bool {
-	// 遍历所有 Progress，找到 matchIndex 的中位数
 	mci := r.RaftLog.maybeCommit(r.Prs, r.Term)
 	if mci > r.RaftLog.committed {
 		r.RaftLog.commitTo(mci)
@@ -721,7 +710,6 @@ func (r *Raft) maybeCommit() bool {
 func (r *Raft) sendSnapshot(to uint64) {
 	snapshot, err := r.RaftLog.storage.Snapshot()
 	if err != nil || snapshot.Metadata == nil {
-		// 快照还未准备好（可能刚触发 GC，还未生成快照）
 		return
 	}
 	msg := pb.Message{
@@ -737,31 +725,24 @@ func (r *Raft) sendSnapshot(to uint64) {
 	r.Prs[to].Next = snapshot.Metadata.Index + 1
 }
 
-// checkLogMatching 检查 index/term 是否与本地日志匹配。
-// 返回 ok 表示是否匹配，冲突 term 和 index 可用于快速回退。
-func (r *Raft) checkLogMatching(index, term uint64) (bool, uint64, uint64) {
+// checkLogMatching check if the log at index matches the term.
+// If it conflicts, it returns false and provides conflict information for fast fallback.
+func (r *Raft) checkLogMatching(index, term uint64) (ok bool, conflictIndex uint64, conflictTerm uint64) {
 	lastIndex := r.RaftLog.LastIndex()
-	// 如果 index < snapshot，日志已经被压缩，不可能匹配
-	// 日志太短，直接失败
 	if index > lastIndex {
 		return false, lastIndex + 1, 0
 	}
 
-	// 获取指定 index 的 term
 	localTerm, err := r.RaftLog.Term(index)
 	if err != nil {
-		// Term 读取失败视为不匹配
 		return false, index, 0
 	}
 
-	// term 不匹配，返回冲突信息
 	if localTerm != term && localTerm != 0 {
 		conflictTerm := localTerm
 		conflictIndex := r.RaftLog.findFirstIndexOfTerm(conflictTerm)
 		return false, conflictIndex, conflictTerm
 	}
-
-	// 匹配成功
 	return true, 0, 0
 }
 
@@ -773,7 +754,6 @@ func (l *RaftLog) findFirstIndexOfTerm(term uint64) uint64 {
 			break
 		}
 		if t == term {
-			// 继续向前找
 		} else if t < term {
 			return i + 1
 		}
@@ -782,22 +762,17 @@ func (l *RaftLog) findFirstIndexOfTerm(term uint64) uint64 {
 }
 
 func (r *Raft) append_or_rewriteEntry(prevLogIndex uint64, entries []*pb.Entry) {
-	// 先找到从 prevLogIndex + 1 开始的本地日志切片
 	fromIndex := prevLogIndex + 1
 	log := r.RaftLog
-	// 遍历新日志 entries
 	for i, entry := range entries {
 		localIndex := fromIndex + uint64(i)
-		// 如果本地日志已经有这条日志，检查是否冲突
 		if localIndex <= log.LastIndex() {
 			localTerm, _ := log.Term(localIndex)
 			if localTerm != entry.Term {
-				// 冲突：删除本地日志从冲突开始的所有条目
 				log.entries = log.entries[:localIndex-log.entries[0].Index]
 				if log.stabled >= localIndex {
 					log.stabled = localIndex - 1
 				}
-				// 追加后续新日志条目
 				r.appendEntry(entries[i:]...)
 				return
 			}
@@ -805,12 +780,10 @@ func (r *Raft) append_or_rewriteEntry(prevLogIndex uint64, entries []*pb.Entry) 
 			if log.stabled >= localIndex {
 				log.stabled = localIndex - 1
 			}
-			// 本地日志没有这条日志，直接追加
 			r.appendEntry(entries[i:]...)
 			return
 		}
 	}
-	// 如果完全匹配，没有冲突，啥也不做
 }
 
 func (r *Raft) handleHeartbeatResp(m pb.Message) {
@@ -824,7 +797,7 @@ func (r *Raft) handleHeartbeatResp(m pb.Message) {
 }
 
 func (r *Raft) HandlePropose(m pb.Message) {
-	if r.State != StateLeader {
+	if r.State != StateLeader { // only leader can accept proposes from clients
 		return
 	}
 	if r.leadTransferee != None {
@@ -835,13 +808,15 @@ func (r *Raft) HandlePropose(m pb.Message) {
 			ent.Term = r.Term
 		}
 	}
-	r.appendEntry(m.Entries...)
+	r.appendEntry(m.Entries...) // append entries to the local log
 	lastIndex := r.RaftLog.LastIndex()
-	r.updateProgress(r.id, lastIndex, lastIndex+1) // 更新自己的进度
-	if !r.brocAppend() {                           // 确认方法名拼写
+	r.updateProgress(r.id, lastIndex, lastIndex+1) // update leader's progress
+	if !r.brocAppend() {                           // trigger append request to followers
 		panic(ErrProposalDropped)
 	}
-	r.maybeCommit()
+	if len(r.Prs) == 1 { // if this is a single node cluster, push commit immediately
+		r.maybeCommit()
+	}
 }
 
 func (r *Raft) handleAppendResponse(m pb.Message) {
@@ -851,30 +826,25 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 	}
 
 	if m.Reject {
-		// Append 被拒绝，Leader 需要回退 nextIndex
-		// m.Index 是 hintIndex，帮助我们快速找到可接受的日志位置
-		// 如果 m.Index = 0，没有 hint，按传统回退
-		if m.Index > 0 {
+		if m.Index > 0 { // fast fallback
 			pr.Next = m.Index
-		} else if pr.Next > 1 {
+		} else if pr.Next > 1 { // fallback to the previous index
 			pr.Next--
 		}
 		r.sendAppend(m.From)
 		return
 	}
 
-	// 成功 append：m.Index 是 follower 最新的 Match Index
-	// 一定要保证只有在未 reject 时才更新
+	// update the progress
 	pr.Match = m.Index
 	pr.Next = pr.Match + 1
 
-	// 更新 progress 后尝试推进 commit
-	r.maybeCommit()
+	r.maybeCommit() // try to promote the commit index
 	if r.leadTransferee == m.From && pr.Match == r.RaftLog.LastIndex() {
 		r.send(pb.Message{
 			To:      m.From,
 			MsgType: pb.MessageType_MsgTimeoutNow,
 		})
-		r.leadTransferee = None // 清除 leadTransferee
+		r.leadTransferee = None
 	}
 }

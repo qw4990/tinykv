@@ -171,13 +171,13 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 }
 
 func (l *RaftLog) maybeCommit(prs map[uint64]*Progress, term uint64) uint64 {
-	// 收集所有节点的 matchIndex
+	// collect matchIndex
 	var matchIndexes []uint64
 	for _, pr := range prs {
 		matchIndexes = append(matchIndexes, pr.Match)
 	}
 
-	// 排序后取中位数（多数派能复制到的最大 index）
+	// get the quorum index
 	sort.Slice(matchIndexes, func(i, j int) bool {
 		return matchIndexes[i] < matchIndexes[j]
 	})
@@ -189,7 +189,7 @@ func (l *RaftLog) maybeCommit(prs map[uint64]*Progress, term uint64) uint64 {
 		return quorumIndex
 	}
 
-	return l.committed // 不推进
+	return l.committed
 }
 
 func (l *RaftLog) commitTo(toCommit uint64) {
