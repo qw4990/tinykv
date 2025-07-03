@@ -956,12 +956,10 @@ func (r *Raft) handleTransferLeader(m pb.Message) {
 
 	// 7. 否则发 TimeoutNow，请其发起选举
 	r.send(pb.Message{
+		From:    r.id,
 		To:      m.From,
 		MsgType: pb.MessageType_MsgTimeoutNow,
 	})
-
-	r.leadTransferee = None
-	r.becomeFollower(r.Term, m.From)
 }
 
 func (r *Raft) handleTransferLeaderTimeout() {
