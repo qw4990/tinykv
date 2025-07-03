@@ -408,11 +408,11 @@ func (r *Raft) Step(m pb.Message) error {
 	case pb.MessageType_MsgSnapshot:
 		r.handleSnapshot(m)
 
-		// case pb.MessageType_MsgTransferLeader:
-		// 	r.handleTransferLeader(m)
+	case pb.MessageType_MsgTransferLeader:
+		r.handleTransferLeader(m)
 
-		// case pb.MessageType_MsgTimeoutNow:
-		// 	r.handleTransferLeaderTimeout()
+	case pb.MessageType_MsgTimeoutNow:
+		r.handleTransferLeaderTimeout()
 	}
 	return nil
 }
@@ -564,11 +564,29 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 // addNode add a new node to raft group
 func (r *Raft) addNode(id uint64) {
 	// Your Code Here (3A).
+	if _, ok := r.Prs[id]; ok {
+		r.PendingConfIndex = None
+		return
+	}
+	r.Prs[id] = &Progress{
+		Match: 0,
+		Next:  1,
+	}
 }
 
 // removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
+	if _, ok := r.Prs[id]; !ok {
+		r.PendingConfIndex = None
+		return
+	}
+	delete(r.Prs, id)
+	// important: if leader, should update commit
+	if r.State == StateLeader {
+		r.maybeCommit()
+	}
+	r.PendingConfIndex = None
 }
 
 func (r *Raft) StartElection() {
@@ -893,4 +911,64 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 		})
 		r.leadTransferee = None
 	}
+}
+
+func (r *Raft) handleTransferLeader(m pb.Message) {
+	// 1. 目标不在集群，忽略
+	if _, ok := r.Prs[m.From]; !ok {
+		return
+	}
+
+	if m.From == r.id {
+		if r.State != StateLeader {
+			r.StartElection()
+		}
+		return
+	}
+
+	// 2. 非 Leader，转发请求
+	if r.State != StateLeader {
+		if r.Lead != None {
+			m.To = r.Lead
+			r.send(m)
+		}
+		return
+	}
+
+	if r.leadTransferee == m.From {
+		return
+	}
+
+	// 3. 如果正在 transfer，且目标不同，则取消旧 transfer
+	if r.leadTransferee != None && r.leadTransferee != m.From {
+		r.leadTransferee = None
+	}
+
+	// 5. 设置新目标
+	r.leadTransferee = m.From
+	pr := r.Prs[m.From]
+
+	// 6. 如果目标日志未追上，先发 Append；等 appendResponse 再发 TimeoutNow
+	if pr.Match < r.RaftLog.LastIndex() {
+		r.sendAppend(m.From)
+		return
+	}
+
+	// 7. 否则发 TimeoutNow，请其发起选举
+	r.send(pb.Message{
+		To:      m.From,
+		MsgType: pb.MessageType_MsgTimeoutNow,
+	})
+
+	r.leadTransferee = None
+	r.becomeFollower(r.Term, m.From)
+}
+
+func (r *Raft) handleTransferLeaderTimeout() {
+	// 如果已经是 Leader，就不需要发起新的选举
+	if r.State == StateLeader {
+		return
+	}
+
+	r.StartElection()
 }
